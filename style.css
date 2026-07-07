@@ -1,0 +1,5 @@
+/**
+ * Root stylesheet — points to the main assets folder.
+ * Use assets/css/style.css directly in new pages.
+ */
+@import url('assets/css/style.css');
