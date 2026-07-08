@@ -16,11 +16,12 @@ $doc = $stmt->get_result()->fetch_assoc();
 
 if (!$doc) { http_response_code(404); die('Document not found.'); }
 
-if ((int)($doc['is_private'] ?? 0) === 1 && (int)$doc['uploaded_by'] !== (int)$user['id'] && $user['role'] !== 'admin') {
-    http_response_code(403); die('Access denied.');
-}
-
-if ($user['role'] === 'casual') {
+if ((int)($doc['is_private'] ?? 0) === 1 && (int)$doc['uploaded_by'] !== (int)$user['id']) {
+    $chk = $db->prepare('SELECT id FROM document_shares WHERE document_id=? AND shared_with_user_id=? LIMIT 1');
+    $chk->bind_param('ii', $id, $user['id']);
+    $chk->execute();
+    if (!$chk->get_result()->fetch_assoc()) { http_response_code(403); die('Access denied.'); }
+} elseif ($user['role'] === 'casual') {
     $chk = $db->prepare('SELECT id FROM document_shares WHERE document_id=? AND shared_with_user_id=? LIMIT 1');
     $chk->bind_param('ii', $id, $user['id']);
     $chk->execute();
@@ -62,6 +63,7 @@ while (ob_get_level()) ob_end_clean();
 header('Content-Type: ' . $mime);
 header('Content-Length: ' . $filesize);
 header('Content-Disposition: ' . ($preview ? 'inline' : 'attachment') . '; filename="' . rawurlencode($displayName) . '"');
+header('X-DMS-Filename: ' . rawurlencode($displayName));
 header('Cache-Control: private, max-age=3600');
 
 $fp = fopen($file_path, 'rb');

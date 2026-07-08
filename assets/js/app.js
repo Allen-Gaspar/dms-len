@@ -71,8 +71,30 @@ const DMS = {
         if (overlay) overlay.classList.add('is-hidden');
     },
 
-    downloadFile(id) {
-        window.location.href = (window.DMS_BASE || '') + 'api/download.php?id=' + id;
+    async downloadFile(id, suggestedName = 'download') {
+        const url = (window.DMS_BASE || '') + 'api/download.php?id=' + id;
+        if (!window.showSaveFilePicker) {
+            window.open(url, '_blank');
+            return;
+        }
+        this.showLoading();
+        try {
+            const handle = await window.showSaveFilePicker({ suggestedName });
+            const response = await fetch(url);
+            if (!response.ok) throw new Error('Download failed');
+            const blob = await response.blob();
+            const writable = await handle.createWritable();
+            await writable.write(blob);
+            await writable.close();
+            this.toast('File saved.');
+        } catch (err) {
+            if (err.name !== 'AbortError') {
+                this.toast('Opening normal download instead.', 'info');
+                window.open(url, '_blank');
+            }
+        } finally {
+            this.hideLoading();
+        }
     },
 
     renameFile(id, currentName = '') {

@@ -25,6 +25,8 @@ if ($origin === 'private') {
     $target = $folder_id > 0 ? "private.php?folder_id={$folder_id}" : 'private.php';
     $join = strpos($target, '?') === false ? '?' : '&';
     header('Location: ' . page_url($target . $join . "ok={$msg}"));
+} elseif ($origin === 'documents') {
+    header('Location: ' . page_url("documents.php?ok={$msg}"));
 } elseif ($folder_id > 0) header('Location: ' . page_url("folders.php?id={$folder_id}&ok={$msg}"));
 else header('Location: ' . page_url("documents.php?ok={$msg}"));
 exit;

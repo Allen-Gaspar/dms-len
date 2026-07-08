@@ -26,6 +26,18 @@ function context_redirect($message_type, $message_text) {
     exit;
 }
 
+function can_access_document(mysqli $db, array $user, array $doc): bool {
+    if ((int)($doc['is_private'] ?? 0) !== 1 || (int)$doc['uploaded_by'] === (int)$user['id']) {
+        return true;
+    }
+    $docId = (int)$doc['id'];
+    $userId = (int)$user['id'];
+    $chk = $db->prepare('SELECT id FROM document_shares WHERE document_id=? AND shared_with_user_id=? LIMIT 1');
+    $chk->bind_param('ii', $docId, $userId);
+    $chk->execute();
+    return (bool)$chk->get_result()->fetch_assoc();
+}
+
 // FIXED ACTIONS WHITELIST: Permitting all modal API fetch requests to pass safely
 $allowed_actions = ['checkout', 'checkin', 'get_history', 'silent_lock', 'silent_unlock', 'commit_revision', 'commit_permissions_only', 'rollback'];
 
@@ -43,6 +55,12 @@ if ($action === 'commit_permissions_only') {
 if ($action === 'get_history') {
     header('Content-Type: application/json');
     if ($id <= 0) { echo json_encode([]); exit; }
+
+    $doc_stmt = $db->prepare('SELECT id, uploaded_by, is_private FROM documents WHERE id=? AND is_deleted=0 LIMIT 1');
+    $doc_stmt->bind_param('i', $id);
+    $doc_stmt->execute();
+    $history_doc = $doc_stmt->get_result()->fetch_assoc();
+    if (!$history_doc || !can_access_document($db, $user, $history_doc)) { echo json_encode([]); exit; }
     
     $stmt = $db->prepare("SELECT id, version_number, storage_path, created_at FROM document_versions WHERE document_id = ? ORDER BY version_number DESC");
     $stmt->bind_param('i', $id);
@@ -55,6 +73,11 @@ if ($action === 'get_history') {
 if ($action === 'silent_lock') {
     header('Content-Type: application/json');
     if ($id > 0) {
+        $doc_stmt = $db->prepare('SELECT id, uploaded_by, is_private FROM documents WHERE id=? AND is_deleted=0 LIMIT 1');
+        $doc_stmt->bind_param('i', $id);
+        $doc_stmt->execute();
+        $lock_doc = $doc_stmt->get_result()->fetch_assoc();
+        if (!$lock_doc || !can_access_document($db, $user, $lock_doc)) { echo json_encode(['success' => false]); exit; }
         $stmt = $db->prepare("UPDATE documents SET is_locked = 1, locked_by = ? WHERE id = ? AND is_locked = 0");
         $stmt->bind_param('ii', $user['id'], $id);
         $stmt->execute();
@@ -67,6 +90,11 @@ if ($action === 'silent_lock') {
 if ($action === 'silent_unlock') {
     header('Content-Type: application/json');
     if ($id > 0) {
+        $doc_stmt = $db->prepare('SELECT id, uploaded_by, is_private FROM documents WHERE id=? AND is_deleted=0 LIMIT 1');
+        $doc_stmt->bind_param('i', $id);
+        $doc_stmt->execute();
+        $unlock_doc = $doc_stmt->get_result()->fetch_assoc();
+        if (!$unlock_doc || !can_access_document($db, $user, $unlock_doc)) { echo json_encode(['success' => false]); exit; }
         $stmt = $db->prepare("UPDATE documents SET is_locked = 0, locked_by = NULL WHERE id = ? AND locked_by = ?");
         $stmt->bind_param('ii', $id, $user['id']);
         $stmt->execute();
@@ -91,6 +119,9 @@ if ($action === 'commit_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if (!$current_doc) {
         context_redirect('err', 'Document execution profile missing.');
+    }
+    if (!can_access_document($db, $user, $current_doc)) {
+        context_redirect('err', 'Access denied.');
     }
 
     $file = $_FILES['revised_document'];
@@ -127,6 +158,13 @@ if ($action === 'rollback') {
     $v_data = $v_stmt->get_result()->fetch_assoc();
     
     if ($v_data) {
+        $doc_stmt = $db->prepare('SELECT id, uploaded_by, is_private FROM documents WHERE id=? AND is_deleted=0 LIMIT 1');
+        $doc_stmt->bind_param('i', $doc_id);
+        $doc_stmt->execute();
+        $rollback_doc = $doc_stmt->get_result()->fetch_assoc();
+        if (!$rollback_doc || !can_access_document($db, $user, $rollback_doc)) {
+            context_redirect('err', 'Access denied.');
+        }
         $u_stmt = $db->prepare("UPDATE documents SET storage_path = ?, size = ?, version = ?, is_locked = 0, locked_by = NULL WHERE id = ?");
         $u_stmt->bind_param('siii', $v_data['storage_path'], $v_data['file_size'], $v_data['version_number'], $doc_id);
         
@@ -147,6 +185,7 @@ $stmt->execute();
 $doc = $stmt->get_result()->fetch_assoc();
 
 if (!$doc) { context_redirect('err', 'Document record missing.'); }
+if (!can_access_document($db, $user, $doc)) { context_redirect('err', 'Access denied.'); }
 
 // Checkout Execution
 if ($action === 'checkout') {

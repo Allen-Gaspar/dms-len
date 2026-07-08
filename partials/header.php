@@ -101,7 +101,7 @@ $is_dashboard_active = in_array($current_file, ['dashboard.php', 'admin_dashboar
                     <div class="user-role"><?= ucfirst($role) ?></div>
                 </div>
             </div>
-            <a href="<?= page_url('logout.php') ?>" class="btn btn-outline btn-sm btn-full">Logout</a>
+            <button type="button" class="btn btn-outline btn-sm btn-full" onclick="DMS.confirm('Logout','Do you want to sign out now?', ()=>location.href='<?= page_url('logout.php') ?>')">Logout</button>
         </div>
     </aside>
 

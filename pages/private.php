@@ -17,8 +17,8 @@ $typeLike = $fileType !== '' ? '%.' . $fileType : '%';
 
 $folder = null;
 if ($folderId > 0) {
-    $fs = $db->prepare('SELECT * FROM folders WHERE id=? AND is_private=1 AND created_by=? LIMIT 1');
-    $fs->bind_param('ii', $folderId, $uid);
+    $fs = $db->prepare('SELECT DISTINCT f.* FROM folders f LEFT JOIN folder_shares fs ON fs.folder_id=f.id AND fs.shared_with_user_id=? WHERE f.id=? AND f.is_private=1 AND (f.created_by=? OR fs.shared_with_user_id IS NOT NULL) LIMIT 1');
+    $fs->bind_param('iii', $uid, $folderId, $uid);
     $fs->execute();
     $folder = $fs->get_result()->fetch_assoc();
     if (!$folder) $folderId = 0;
@@ -53,8 +53,8 @@ else $stmt->bind_param('iissii', $uid, $uid, $like, $typeLike, $limit, $offset);
 $stmt->execute();
 $documents = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
-$folders = $db->prepare('SELECT * FROM folders WHERE is_private=1 AND created_by=? ORDER BY name');
-$folders->bind_param('i', $uid);
+$folders = $db->prepare('SELECT DISTINCT f.* FROM folders f LEFT JOIN folder_shares fs ON fs.folder_id=f.id AND fs.shared_with_user_id=? WHERE f.is_private=1 AND (f.created_by=? OR fs.shared_with_user_id IS NOT NULL) ORDER BY f.name');
+$folders->bind_param('ii', $uid, $uid);
 $folders->execute();
 $privateFolders = $folders->get_result()->fetch_all(MYSQLI_ASSOC);
 
@@ -122,7 +122,7 @@ include APP_ROOT . '/partials/header.php';
   <?php if (empty($documents)): ?><tr><td colspan="8" class="empty-row">No private files.</td></tr><?php endif; ?>
   <?php foreach ($documents as $doc):
     $locker_role = $doc['locker_role'] ?? 'user';
-    $can_write = $role !== 'casual' && ((int)$doc['uploaded_by'] === $uid || $role === 'admin');
+    $can_write = $role !== 'casual' && (int)$doc['uploaded_by'] === $uid;
   ?>
     <tr data-private-file-name="<?= htmlspecialchars(strtolower($doc['filename'])) ?>">
       <td><button type="button" class="file-name-link" onclick="DMS.openFileDetail(<?= (int)$doc['id'] ?>)"><?= htmlspecialchars($doc['filename']) ?></button></td>
@@ -138,12 +138,12 @@ include APP_ROOT . '/partials/header.php';
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
           </button>
         <?php endif; ?>
-        <?php if ($role !== 'casual' && ((int)$doc['uploaded_by'] === $uid || $role === 'admin')): ?>
-          <a class="btn-icon-sm" style="background:#6366f1;color:#fff;text-decoration:none" title="Share" href="<?= app_url('api/share.php?id=' . (int)$doc['id']) ?>">
+        <?php if ($role !== 'casual' && (int)$doc['uploaded_by'] === $uid): ?>
+          <button type="button" class="btn-icon-sm" style="background:#6366f1;color:#fff;text-decoration:none" title="Share" onclick="openShareModal(<?= (int)$doc['id'] ?>, '<?= htmlspecialchars(addslashes($doc['filename'])) ?>')">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><path d="m16 6-4-4-4 4"></path><path d="M12 2v13"></path></svg>
-          </a>
+          </button>
         <?php endif; ?>
-        <button class="btn-icon-sm btn-outline" title="Download" onclick="DMS.confirm('Download file','Download <?= htmlspecialchars(addslashes($doc['filename'])) ?>?', ()=>DMS.downloadFile(<?= (int)$doc['id'] ?>))">
+        <button class="btn-icon-sm btn-outline" title="Download" onclick="DMS.confirm('Download file','Choose where to save <?= htmlspecialchars(addslashes($doc['filename'])) ?>?', ()=>DMS.downloadFile(<?= (int)$doc['id'] ?>, '<?= htmlspecialchars(addslashes($doc['filename'])) ?>'))">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><path d="m7 10 5 5 5-5"></path><path d="M12 15V3"></path></svg>
         </button>
         <?php if ($role !== 'casual'): ?>
@@ -151,7 +151,7 @@ include APP_ROOT . '/partials/header.php';
             <button class="btn-icon-sm btn-warn" title="Lock" onclick="DMS.confirm('Lock file','Lock this file for editing?', ()=>location.href='<?= app_url('api/version_control.php?action=checkout&origin=private&id=' . (int)$doc['id'] . '&folder_id=' . (int)$folderId) ?>')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V8a5 5 0 0 1 10 0v3"></path></svg>
             </button>
-          <?php elseif ((int)$doc['locked_by'] === $uid || $role === 'admin'): ?>
+          <?php elseif ((int)$doc['locked_by'] === $uid): ?>
             <button class="btn-icon-sm btn-ok" title="Unlock" onclick="DMS.confirm('Unlock file','Release the lock on this file?', ()=>location.href='<?= app_url('api/version_control.php?action=checkin&origin=private&id=' . (int)$doc['id'] . '&folder_id=' . (int)$folderId) ?>')">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="10" rx="2"></rect><path d="M7 11V8a5 5 0 0 1 9.8-1.4"></path></svg>
             </button>
@@ -167,7 +167,69 @@ include APP_ROOT . '/partials/header.php';
 
 <?= Pagination::render($total, $offset, $limit, page_url('private.php'), ['search' => $search, 'type' => $fileType, 'folder_id' => $folderId ?: '']) ?>
 
+<div id="shareModal" class="modal-overlay">
+  <div class="modal-card modal-lg">
+    <button class="modal-close" onclick="DMS.closeModal('shareModal')">&times;</button>
+    <h3>Share Document</h3>
+    <p id="shareDocName"></p>
+    <input type="hidden" id="shareDocId">
+    <div class="form-group">
+      <label>User email</label>
+      <div class="share-email-row">
+        <input type="email" id="shareUserEmail" placeholder="name@example.com" autocomplete="off">
+        <button type="button" class="btn btn-secondary" onclick="submitShare()">Search & Share</button>
+      </div>
+    </div>
+    <div class="perm-grid">
+      <label><input type="checkbox" id="sh_all" onchange="toggleShareAll(this)"> Select all</label>
+      <label><input type="checkbox" id="sh_add"> Add</label>
+      <label><input type="checkbox" id="sh_edit"> Edit</label>
+      <label><input type="checkbox" id="sh_delete"> Delete</label>
+      <label><input type="checkbox" id="sh_download" checked> Download</label>
+      <label><input type="checkbox" id="sh_checkout"> Lock/Unlock</label>
+      <label><input type="checkbox" id="sh_share"> Share</label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="DMS.closeModal('shareModal')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitShare()">Share</button>
+    </div>
+  </div>
+</div>
+
 <script>
+function openShareModal(id, name) {
+  document.getElementById('shareDocId').value = id;
+  document.getElementById('shareDocName').textContent = name;
+  document.getElementById('shareUserEmail').value = '';
+  ['sh_all','sh_add','sh_edit','sh_delete','sh_checkout','sh_share'].forEach(id => document.getElementById(id).checked = false);
+  document.getElementById('sh_download').checked = true;
+  DMS.openModal('shareModal');
+}
+function toggleShareAll(master) {
+  ['sh_add','sh_edit','sh_delete','sh_download','sh_checkout','sh_share'].forEach(id => document.getElementById(id).checked = master.checked);
+}
+function submitShare() {
+  const email = document.getElementById('shareUserEmail').value.trim();
+  if (!email) { DMS.toast('Type the user email first', 'error'); return; }
+  DMS.showLoading();
+  fetch('<?= app_url('api/share.php?action=grant_direct_access') ?>', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({
+      document_id: document.getElementById('shareDocId').value,
+      email: email,
+      can_add: document.getElementById('sh_add').checked ? 1 : 0,
+      can_download: document.getElementById('sh_download').checked ? 1 : 0,
+      can_edit: document.getElementById('sh_edit').checked ? 1 : 0,
+      can_delete: document.getElementById('sh_delete').checked ? 1 : 0,
+      can_checkout: document.getElementById('sh_checkout').checked ? 1 : 0,
+      can_share: document.getElementById('sh_share').checked ? 1 : 0
+    })
+  }).then(r=>r.json()).then(d => {
+    if (d.success) { DMS.toast('Shared successfully'); DMS.closeModal('shareModal'); }
+    else DMS.toast(d.message || 'Share failed', 'error');
+  }).finally(() => DMS.hideLoading());
+}
 document.addEventListener('DOMContentLoaded', () => {
   const folderInput = document.getElementById('privateFolderSearch');
   const folderSuggest = document.getElementById('privateFolderSuggest');

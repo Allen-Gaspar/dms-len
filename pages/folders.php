@@ -11,6 +11,8 @@ date_default_timezone_set('Asia/Manila');
 
 $success = $_GET['ok']  ?? '';
 $error   = $_GET['err'] ?? '';
+$offset  = max(0, (int)($_GET['offset'] ?? 0));
+$limit   = ROWS_PER_PAGE;
 
 function format_bytes(int $bytes): string {
     if ($bytes >= 1048576) return round($bytes / 1048576, 1) . ' MB';
@@ -125,13 +127,12 @@ $folders_query_str = "
     LEFT JOIN folder_shares fs ON fs.folder_id = f.id AND fs.shared_with_user_id = ?
     WHERE (f.is_private = 0 
        OR f.created_by = ? 
-       OR fs.shared_with_user_id IS NOT NULL 
-       OR ? = 'admin')
+       OR fs.shared_with_user_id IS NOT NULL)
        $root_folder_filter
     ORDER BY f.name ASC
 ";
 $f_list_stmt = $db->prepare($folders_query_str);
-$f_list_stmt->bind_param('iis', $user['id'], $user['id'], $role);
+$f_list_stmt->bind_param('ii', $user['id'], $user['id']);
 $f_list_stmt->execute();
 $all_folders = $f_list_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
@@ -148,24 +149,38 @@ foreach ($all_folders as $f) {
 
 $current_folder = null;
 $folder_files   = [];
+$folder_files_total = 0;
 $child_folders  = [];
 if ($current_folder_id > 0) {
-    $f_stmt = $db->prepare("SELECT * FROM folders WHERE id = ? LIMIT 1");
-    $f_stmt->bind_param('i', $current_folder_id);
+    $f_stmt = $db->prepare("SELECT DISTINCT f.* FROM folders f LEFT JOIN folder_shares fs ON fs.folder_id = f.id AND fs.shared_with_user_id = ? WHERE f.id = ? AND (f.is_private = 0 OR f.created_by = ? OR fs.shared_with_user_id IS NOT NULL) LIMIT 1");
+    $f_stmt->bind_param('iii', $user['id'], $current_folder_id, $user['id']);
     $f_stmt->execute();
     $current_folder = $f_stmt->get_result()->fetch_assoc();
 
     if ($current_folder) {
+        $files_count_stmt = $db->prepare(
+            "SELECT COUNT(DISTINCT d.id)
+             FROM documents d
+             LEFT JOIN document_shares ds ON ds.document_id = d.id AND ds.shared_with_user_id = ?
+             WHERE d.folder_id = ? AND d.is_deleted = 0
+               AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL)"
+        );
+        $files_count_stmt->bind_param('iii', $user['id'], $current_folder_id, $user['id']);
+        $files_count_stmt->execute();
+        $folder_files_total = (int)$files_count_stmt->get_result()->fetch_row()[0];
+
         $files_stmt = $db->prepare(
             "SELECT d.*, u.username AS uploader_name, ur.role AS uploader_role, lk.username AS locker_name
              FROM documents d
+             LEFT JOIN document_shares ds ON ds.document_id = d.id AND ds.shared_with_user_id = ?
              LEFT JOIN users u  ON u.id = d.uploaded_by
              LEFT JOIN users ur ON ur.id = d.uploaded_by
              LEFT JOIN users lk ON lk.id = d.locked_by
-             WHERE d.folder_id = ? AND d.is_deleted = 0 
-             ORDER BY d.filename ASC"
+             WHERE d.folder_id = ? AND d.is_deleted = 0
+               AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL)
+             ORDER BY d.filename ASC LIMIT ? OFFSET ?"
         );
-        $files_stmt->bind_param('i', $current_folder_id);
+        $files_stmt->bind_param('iiiii', $user['id'], $current_folder_id, $user['id'], $limit, $offset);
         $files_stmt->execute();
         $folder_files = $files_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
@@ -174,10 +189,10 @@ if ($current_folder_id > 0) {
                 "SELECT DISTINCT f.* FROM folders f
                  LEFT JOIN folder_shares fs ON fs.folder_id = f.id AND fs.shared_with_user_id = ?
                  WHERE f.parent_id = ?
-                   AND (f.is_private = 0 OR f.created_by = ? OR fs.shared_with_user_id IS NOT NULL OR ? = 'admin')
+                   AND (f.is_private = 0 OR f.created_by = ? OR fs.shared_with_user_id IS NOT NULL)
                  ORDER BY f.name ASC"
             );
-            $child_stmt->bind_param('iiis', $user['id'], $current_folder_id, $user['id'], $role);
+            $child_stmt->bind_param('iii', $user['id'], $current_folder_id, $user['id']);
             $child_stmt->execute();
             $child_folders = $child_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         }
@@ -440,9 +455,9 @@ include __DIR__ . '/../partials/header.php';
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
                   </a>
 
-                  <a href="<?= app_url('api/download.php?id=' . (int)$doc_row['id']) ?>" class="btn-icon-sm btn-outline" title="Download Document" style="background: #fff; border:1px solid #ccc;">
+                  <button type="button" class="btn-icon-sm btn-outline" title="Download Document" onclick="DMS.confirm('Download','Choose where to save <?= htmlspecialchars(addslashes($doc_row['filename'])) ?>?', ()=>DMS.downloadFile(<?= (int)$doc_row['id'] ?>, '<?= htmlspecialchars(addslashes($doc_row['filename'])) ?>'))">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                  </a>
+                  </button>
 
                   <?php if ($role !== 'casual'): ?>
                     <?php if (empty($doc_row['is_locked'])): ?>
@@ -455,9 +470,9 @@ include __DIR__ . '/../partials/header.php';
                       </a>
                     <?php endif; ?>
 
-                    <a href="<?= app_url('api/delete.php?id=' . (int)$doc_row['id']) ?>" class="btn-icon-sm btn-danger" title="Delete File" onclick="return confirm('Delete this file from folder?')">
+                    <button type="button" class="btn-icon-sm btn-danger" title="Delete File" onclick="DMS.confirm('Delete','Move this file to trash?', ()=>location.href='<?= app_url('api/delete.php?id=' . (int)$doc_row['id'] . '&origin=folders') ?>')">
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                    </a>
+                    </button>
                   <?php endif; ?>
                 </div>
               </td>
@@ -466,6 +481,7 @@ include __DIR__ . '/../partials/header.php';
         <?php endif; ?>
         </tbody>
       </table>
+      <?= Pagination::render($folder_files_total, $offset, $limit, page_url('folders.php'), ['id' => $current_folder_id]) ?>
     </div>
   <?php endif; ?>
 <?php endif; ?>

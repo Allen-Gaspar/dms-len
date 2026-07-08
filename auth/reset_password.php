@@ -42,7 +42,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
         $notif = new Notification();
         $notif->add($userId, 'Security', 'Your password was changed.');
         Mailer::send($u['email'], $u['username'], 'FILESTAC DMS — Password Changed',
-            '<p>Your password has been reset successfully.</p>');
+            '<div style="font-family:Arial,sans-serif;line-height:1.5;color:#1f2937"><h2 style="margin:0 0 12px;color:#4D9A27">Password changed</h2><p>Hello ' . htmlspecialchars($u['username']) . ', your FILESTAC DMS password was reset successfully.</p><p style="font-size:12px;color:#64748b">If this was not you, contact your administrator immediately.</p></div>',
+            'Your FILESTAC DMS password was reset successfully. If this was not you, contact your administrator immediately.');
         audit_log($userId, 'PASSWORD_RESET', 'Password reset via email link');
         header('Location: ' . page_url('login.php?ok=' . urlencode('Password reset. You can now login.')));
         exit;

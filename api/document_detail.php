@@ -63,16 +63,19 @@ if (!$doc) {
 }
 
 // Access check for private
-if ((int)$doc['is_private'] === 1 && (int)$doc['uploaded_by'] !== (int)$user['id'] && $user['role'] !== 'admin') {
-    echo json_encode(['success' => false, 'message' => 'Access denied']);
-    exit;
-}
-
-if ($user['role'] === 'casual') {
+if ((int)$doc['is_private'] === 1 && (int)$doc['uploaded_by'] !== (int)$user['id']) {
     $chk = $db->prepare('SELECT id FROM document_shares WHERE document_id=? AND shared_with_user_id=?');
     $chk->bind_param('ii', $id, $user['id']);
     $chk->execute();
-    if (!$chk->get_result()->fetch_assoc() && (int)$doc['is_private'] === 1) {
+    if (!$chk->get_result()->fetch_assoc()) {
+        echo json_encode(['success' => false, 'message' => 'Access denied']);
+        exit;
+    }
+} elseif ($user['role'] === 'casual') {
+    $chk = $db->prepare('SELECT id FROM document_shares WHERE document_id=? AND shared_with_user_id=?');
+    $chk->bind_param('ii', $id, $user['id']);
+    $chk->execute();
+    if (!$chk->get_result()->fetch_assoc()) {
         echo json_encode(['success' => false, 'message' => 'Access denied']);
         exit;
     }

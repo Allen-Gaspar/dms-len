@@ -37,7 +37,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bind_param('iss', $found['id'], $token, $expires);
             $stmt->execute();
 
-            $resetLink = app_url('auth/reset_password.php?token=' . $token);
+            $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+            $host = $_SERVER['HTTP_HOST'] ?? 'localhost';
+            $resetLink = $scheme . '://' . $host . app_url('auth/reset_password.php?token=' . $token);
             Mailer::send($found['email'], $found['username'], 'FILESTAC DMS — Password Reset',
                 '<p>Hello ' . htmlspecialchars($found['username']) . ',</p>
                  <p>Click the link below to reset your password:</p>
@@ -65,8 +67,11 @@ $brandName = DEFAULT_BRAND;
 </head>
 <body class="skin-login">
 <div class="login-wrap">
-  <div class="login-box">
-    <h1>Forgot Password</h1>
+  <div class="login-box forgot-box">
+    <div class="login-logo">
+      <img src="<?= htmlspecialchars($logoUrl) ?>" alt="" class="forgot-logo">
+      <h1>Forgot Password</h1>
+    </div>
     <p class="subtitle">Enter your account email to receive a reset link.</p>
     <?php if ($error): ?><div id="toast-data" data-msg="<?= htmlspecialchars($error) ?>" data-type="error" hidden></div><?php endif; ?>
     <?php if ($message): ?><div id="toast-data" data-msg="<?= htmlspecialchars($message) ?>" data-type="success" hidden></div><?php endif; ?>

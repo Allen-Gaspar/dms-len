@@ -17,6 +17,40 @@ if ($role === 'casual') {
 
 header('Content-Type: application/json');
 
+function can_manage_folder(mysqli $db, array $user, int $folderId): bool {
+    $stmt = $db->prepare('SELECT created_by FROM folders WHERE id=? LIMIT 1');
+    $stmt->bind_param('i', $folderId);
+    $stmt->execute();
+    $folder = $stmt->get_result()->fetch_assoc();
+    return $folder && ((int)$folder['created_by'] === (int)$user['id'] || $user['role'] === 'admin');
+}
+
+function upsert_folder_share(mysqli $db, int $folderId, int $targetUserId, array $perms): bool {
+    $stmt = $db->prepare(
+        'INSERT INTO folder_shares (folder_id, shared_with_user_id, can_edit, can_add, can_delete, can_checkout, can_download, can_share)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+            can_edit = VALUES(can_edit),
+            can_add = VALUES(can_add),
+            can_delete = VALUES(can_delete),
+            can_checkout = VALUES(can_checkout),
+            can_download = VALUES(can_download),
+            can_share = VALUES(can_share)'
+    );
+    $stmt->bind_param(
+        'iiiiiiii',
+        $folderId,
+        $targetUserId,
+        $perms['can_edit'],
+        $perms['can_add'],
+        $perms['can_delete'],
+        $perms['can_checkout'],
+        $perms['can_download'],
+        $perms['can_share']
+    );
+    return $stmt->execute();
+}
+
 switch ($action) {
     case 'get_shares':
         $folder_id = (int)($_GET['folder_id'] ?? 0);
@@ -56,26 +90,71 @@ switch ($action) {
             echo json_encode(['success' => false, 'message' => 'Missing essential identification properties.']);
             exit;
         }
+        if (!can_manage_folder($db, $user, $folder_id)) {
+            echo json_encode(['success' => false, 'message' => 'You can only share folders you own.']);
+            exit;
+        }
 
-        // Upsert strategy (insert or update rules instantly on a duplicate key map constraint match)
-        $stmt = $db->prepare(
-            'INSERT INTO folder_shares (folder_id, shared_with_user_id, can_edit, can_add, can_delete, can_checkout, can_download, can_share)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE 
-                can_edit = VALUES(can_edit), 
-                can_add = VALUES(can_add), 
-                can_delete = VALUES(can_delete), 
-                can_checkout = VALUES(can_checkout), 
-                can_download = VALUES(can_download), 
-                can_share = VALUES(can_share)'
-        );
-        $stmt->bind_param('iiiiiiii', $folder_id, $shared_with_user_id, $can_edit, $can_add, $can_delete, $can_checkout, $can_download, $can_share);
-        
-        if ($stmt->execute()) {
+        $perms = compact('can_add', 'can_edit', 'can_delete', 'can_checkout', 'can_download', 'can_share');
+        if (upsert_folder_share($db, $folder_id, $shared_with_user_id, $perms)) {
             echo json_encode(['success' => true]);
         } else {
             echo json_encode(['success' => false, 'message' => 'Database write error.']);
         }
+        exit;
+
+    case 'grant_access_by_email':
+        $input = json_decode(file_get_contents('php://input'), true);
+        if (!$input) {
+            echo json_encode(['success' => false, 'message' => 'Invalid data payload.']);
+            exit;
+        }
+
+        $folder_id = (int)($input['folder_id'] ?? 0);
+        if ($folder_id <= 0 || !can_manage_folder($db, $user, $folder_id)) {
+            echo json_encode(['success' => false, 'message' => 'You can only share folders you own.']);
+            exit;
+        }
+
+        $perms = [
+            'can_add' => (int)($input['can_add'] ?? 1),
+            'can_edit' => (int)($input['can_edit'] ?? 1),
+            'can_delete' => (int)($input['can_delete'] ?? 1),
+            'can_checkout' => (int)($input['can_checkout'] ?? 1),
+            'can_download' => (int)($input['can_download'] ?? 1),
+            'can_share' => (int)($input['can_share'] ?? 1),
+        ];
+
+        $targets = [];
+        if (!empty($input['all_users'])) {
+            $stmt = $db->prepare("SELECT id FROM users WHERE id != ? AND status = 'active' AND is_deleted = 0");
+            $stmt->bind_param('i', $user['id']);
+            $stmt->execute();
+            $targets = array_map('intval', array_column($stmt->get_result()->fetch_all(MYSQLI_ASSOC), 'id'));
+        } else {
+            $email = trim($input['email'] ?? '');
+            if ($email === '') {
+                echo json_encode(['success' => false, 'message' => 'User email is required.']);
+                exit;
+            }
+            $stmt = $db->prepare("SELECT id FROM users WHERE email=? AND status='active' AND is_deleted=0 LIMIT 1");
+            $stmt->bind_param('s', $email);
+            $stmt->execute();
+            $target = $stmt->get_result()->fetch_assoc();
+            if (!$target) {
+                echo json_encode(['success' => false, 'message' => 'No active user found with that email.']);
+                exit;
+            }
+            $targets[] = (int)$target['id'];
+        }
+
+        $ok = true;
+        foreach ($targets as $targetId) {
+            if ($targetId !== (int)$user['id']) {
+                $ok = upsert_folder_share($db, $folder_id, $targetId, $perms) && $ok;
+            }
+        }
+        echo json_encode(['success' => $ok, 'message' => $ok ? 'Folder access updated.' : 'Some shares could not be saved.']);
         exit;
 
     case 'revoke_access':

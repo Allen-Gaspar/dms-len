@@ -486,6 +486,19 @@ body.skin-login {
 .login-logo h1 { font-size: 24px; font-weight: 800; color: var(--primary); }
 .login-logo .subtitle { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
 .login-note { text-align: center; font-size: 12px; color: var(--text-muted); margin-top: 16px; }
+.forgot-box { max-width: 440px; padding-top: 34px; }
+.forgot-logo {
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+  display: block;
+  margin: 0 auto 10px;
+}
+.forgot-box .subtitle {
+  color: var(--text-muted);
+  text-align: center;
+  margin: -12px 0 22px;
+}
 
 
 
@@ -1267,10 +1280,103 @@ body.dms-loading .loading-overlay { display: flex; }
 .icon-20 { width: 20px; height: 20px; }
 .settings-link { margin-bottom: 8px; border-radius: var(--radius); }
 
+@media (min-width: 901px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+  }
+  .main-content {
+    margin-left: var(--sidebar-w);
+    min-height: 100vh;
+  }
+  .sidebar.collapsed + .main-content,
+  #dashboard-sidebar.collapsed + .main-content {
+    margin-left: 0;
+  }
+  .sidebar-nav {
+    overflow: hidden;
+  }
+}
+.nav-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+  font-size: 13px;
+}
+.sidebar .nav-icon {
+  font-size: 0;
+}
+.sidebar .nav-icon::before {
+  font-size: 12px;
+  font-weight: 900;
+  line-height: 1;
+}
+.sidebar-nav .nav-item:nth-child(1) .nav-icon::before { content: "D"; }
+.sidebar-nav .nav-item:nth-child(2) .nav-icon::before { content: "F"; }
+.sidebar-nav .nav-item:nth-child(3) .nav-icon::before { content: "P"; }
+.sidebar-nav .nav-item:nth-child(4) .nav-icon::before { content: "O"; }
+.sidebar-nav .nav-item:nth-child(5) .nav-icon::before { content: "U"; }
+.sidebar-nav .nav-item:nth-child(6) .nav-icon::before { content: "T"; }
+.sidebar-nav .nav-item:nth-child(7) .nav-icon::before { content: "A"; }
+.sidebar-nav .nav-item:nth-child(8) .nav-icon::before { content: "C"; }
+.settings-link::before {
+  content: "S";
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--primary) 14%, transparent);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 900;
+}
+.settings-link {
+  font-size: 0;
+}
+.settings-link::after {
+  content: "Settings";
+  font-size: 14px;
+  font-weight: 500;
+}
+.nav-item.active .nav-icon,
+.nav-item:hover .nav-icon {
+  background: var(--primary);
+  color: #fff;
+}
+.settings-link:hover::before,
+.settings-link.active::before {
+  background: var(--primary);
+  color: #fff;
+}
+
 /* ── Theme dark mode ──────────────────────────────────────── */
 body.theme-dark {
   --bg: #0f172a; --surface: #172033; --border: #334155;
   --text: #f8fafc; --text-muted: #cbd5e1; --primary-light: #1e293b;
+}
+body.theme-dark,
+body.theme-dark .app-layout,
+body.theme-dark .main-content,
+body.theme-dark .page-body,
+body.theme-dark .top-bar,
+body.theme-dark .sidebar,
+body.theme-dark .data-table,
+body.theme-dark .private-folder-card,
+body.theme-dark .folder-item-node,
+body.theme-dark .drop-zone,
+body.theme-dark .perm-grid label {
+  background: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
 }
 body.theme-dark .modal-card,
 body.theme-dark .notif-panel,
@@ -1303,6 +1409,7 @@ body.theme-dark th {
   color: #f8fafc !important;
 }
 body.theme-dark .data-table th { background: #1e293b !important; }
+body.theme-dark .data-table tbody tr:hover { background: #111c31 !important; }
 body.theme-dark .data-table td,
 body.theme-dark .notif-item,
 body.theme-dark .suggestion-item,
@@ -1312,6 +1419,10 @@ body.theme-dark .file-preview-frame,
 body.theme-dark .preview-box-split {
   background: #0f172a !important;
   color: #f8fafc !important;
+}
+body.theme-dark .btn-outline,
+body.theme-dark .btn-icon-sm.btn-outline {
+  background: #172033 !important;
 }
 
 /* ── Responsive ───────────────────────────────────────────── */

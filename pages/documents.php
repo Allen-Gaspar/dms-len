@@ -29,8 +29,8 @@ if ($role === 'casual') {
     $countStmt = $db->prepare('SELECT COUNT(*) FROM documents d INNER JOIN document_shares ds ON ds.document_id=d.id AND ds.shared_with_user_id=? WHERE d.is_deleted=0 AND d.filename LIKE ? AND d.filename LIKE ?');
     $countStmt->bind_param('iss', $user['id'], $like, $typeLike);
 } else {
-    $countStmt = $db->prepare('SELECT COUNT(*) FROM documents d WHERE d.is_deleted=0 AND d.filename LIKE ? AND d.filename LIKE ?');
-    $countStmt->bind_param('ss', $like, $typeLike);
+    $countStmt = $db->prepare('SELECT COUNT(DISTINCT d.id) FROM documents d LEFT JOIN document_shares ds ON ds.document_id=d.id AND ds.shared_with_user_id=? WHERE d.is_deleted=0 AND (d.is_private=0 OR d.uploaded_by=? OR ds.shared_with_user_id IS NOT NULL) AND d.filename LIKE ? AND d.filename LIKE ?');
+    $countStmt->bind_param('iiss', $user['id'], $user['id'], $like, $typeLike);
 }
 $countStmt->execute();
 $total = (int)$countStmt->get_result()->fetch_row()[0];
@@ -53,13 +53,14 @@ if ($role === 'casual') {
     $stmt = $db->prepare(
         'SELECT d.*, u.username AS uploader_name, ur.role AS uploader_role, lk.username AS locker_name, lk.role AS locker_role
          FROM documents d
+         LEFT JOIN document_shares ds ON ds.document_id = d.id AND ds.shared_with_user_id = ?
          LEFT JOIN users u  ON u.id = d.uploaded_by
          LEFT JOIN users ur ON ur.id = d.uploaded_by
          LEFT JOIN users lk ON lk.id = d.locked_by
-         WHERE d.is_deleted = 0 AND d.filename LIKE ? AND d.filename LIKE ?
+         WHERE d.is_deleted = 0 AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL) AND d.filename LIKE ? AND d.filename LIKE ?
          ORDER BY d.created_at DESC LIMIT ? OFFSET ?'
     );
-    $stmt->bind_param('ssii', $like, $typeLike, $limit, $offset);
+    $stmt->bind_param('iissii', $user['id'], $user['id'], $like, $typeLike, $limit, $offset);
     $stmt->execute();
 }
 $documents = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
@@ -202,7 +203,7 @@ include __DIR__ . '/../partials/header.php';
           </button>
 
           <!-- Download with confirmation -->
-          <button type="button" class="btn-icon-sm btn-outline" title="Download" onclick="DMS.confirm('Download','Download <?= htmlspecialchars(addslashes($doc['filename'])) ?>?', ()=>DMS.downloadFile(<?= (int)$doc['id'] ?>))">
+          <button type="button" class="btn-icon-sm btn-outline" title="Download" onclick="DMS.confirm('Download','Choose where to save <?= htmlspecialchars(addslashes($doc['filename'])) ?>?', ()=>DMS.downloadFile(<?= (int)$doc['id'] ?>, '<?= htmlspecialchars(addslashes($doc['filename'])) ?>'))">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
@@ -235,7 +236,7 @@ include __DIR__ . '/../partials/header.php';
             <?php endif; ?>
 
             <?php if ($can_write): ?>
-              <button type="button" class="btn-icon-sm btn-danger" title="Delete" onclick="DMS.confirm('Delete','Move this file to trash?', ()=>location.href='<?= app_url('api/delete.php?id=' . (int)$doc['id']) ?>')">
+              <button type="button" class="btn-icon-sm btn-danger" title="Delete" onclick="DMS.confirm('Delete','Move this file to trash?', ()=>location.href='<?= app_url('api/delete.php?id=' . (int)$doc['id'] . '&origin=documents') ?>')">
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                   <polyline points="3 6 5 6 21 6"></polyline>
                   <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>

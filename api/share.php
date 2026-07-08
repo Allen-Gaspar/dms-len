@@ -19,8 +19,8 @@ if (isset($_GET['action'])) {
         }
         
         $search_term = "%{$query}%";
-        $suggest_stmt = $db->prepare("SELECT id, filename FROM documents WHERE filename LIKE ? AND is_deleted = 0 LIMIT 5");
-        $suggest_stmt->bind_param('s', $search_term);
+        $suggest_stmt = $db->prepare("SELECT DISTINCT d.id, d.filename FROM documents d LEFT JOIN document_shares ds ON ds.document_id=d.id AND ds.shared_with_user_id=? WHERE d.filename LIKE ? AND d.is_deleted = 0 AND (d.is_private=0 OR d.uploaded_by=? OR ds.shared_with_user_id IS NOT NULL) LIMIT 5");
+        $suggest_stmt->bind_param('isi', $user['id'], $search_term, $user['id']);
         $suggest_stmt->execute();
         $results = $suggest_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         
@@ -57,6 +57,19 @@ if (isset($_GET['action'])) {
 
         if ($doc_id <= 0) {
             echo json_encode(['success' => false, 'message' => 'Document ID is required.']);
+            exit;
+        }
+
+        $owner_stmt = $db->prepare("SELECT uploaded_by, is_private FROM documents WHERE id = ? AND is_deleted = 0 LIMIT 1");
+        $owner_stmt->bind_param('i', $doc_id);
+        $owner_stmt->execute();
+        $owner_doc = $owner_stmt->get_result()->fetch_assoc();
+        if (!$owner_doc) {
+            echo json_encode(['success' => false, 'message' => 'Document not found.']);
+            exit;
+        }
+        if ((int)$owner_doc['uploaded_by'] !== (int)$user['id'] && (int)$owner_doc['is_private'] === 1) {
+            echo json_encode(['success' => false, 'message' => 'You cannot share a private file you do not own.']);
             exit;
         }
 
@@ -112,12 +125,16 @@ if ($doc_id <= 0) {
     exit;
 }
 
-$stmt = $db->prepare('SELECT * FROM documents WHERE id=? AND is_deleted=0 LIMIT 1');
+$stmt = $db->prepare('SELECT d.*, u.username AS owner_name, u.role AS owner_role FROM documents d LEFT JOIN users u ON u.id=d.uploaded_by WHERE d.id=? AND d.is_deleted=0 LIMIT 1');
 $stmt->bind_param('i', $doc_id);
 $stmt->execute();
 $doc = $stmt->get_result()->fetch_assoc();
 if (!$doc) {
     header('Location: ' . page_url('documents.php?err=' . urlencode('Document not found.')));
+    exit;
+}
+if ((int)($doc['is_private'] ?? 0) === 1 && (int)$doc['uploaded_by'] !== (int)$user['id']) {
+    header('Location: ' . page_url('documents.php?err=' . urlencode('Access denied.')));
     exit;
 }
 
@@ -230,6 +247,7 @@ include __DIR__ . '/../partials/header.php';
 </style>
 
 <h2 class="page-title">Share: <?= htmlspecialchars($doc['filename']) ?></h2>
+<p class="muted">Owner: <strong><?= htmlspecialchars($doc['owner_name'] ?? 'Unknown') ?></strong> (<?= htmlspecialchars($doc['owner_role'] ?? 'user') ?>)</p>
 
 <div class="search-container">
   <div class="search-box">
