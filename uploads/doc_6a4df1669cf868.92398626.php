@@ -6,7 +6,6 @@ require_once __DIR__ . '/../core/auth.php';
 $user = require_role('casual', 'contributor', 'admin');
 $db   = get_db();
 $role = $user['role']; 
-$userPerms = (new User())->getPermissions((int)$user['id']);
 
 date_default_timezone_set('Asia/Manila');
 
@@ -25,7 +24,7 @@ function format_bytes(int $bytes): string {
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['form_action'])) {
     // A. Create Folder Logic
     if ($_POST['form_action'] === 'create_folder') {
-        if ($role === 'casual' || empty($userPerms['can_add'])) {
+        if ($role === 'casual') {
             header('Location: ' . page_url('folders.php?err=' . urlencode('Unauthorized operation folder validation layer.')));
             exit;
         }
@@ -52,7 +51,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['form_action'])) {
     
     // B. Rename Folder Logic (Combined directly into folders.php)
     if ($_POST['form_action'] === 'rename_folder') {
-        if ($role === 'casual' || empty($userPerms['can_edit'])) {
+        if ($role === 'casual') {
             header('Location: ' . page_url('folders.php?err=' . urlencode('Unauthorized operation access block.')));
             exit;
         }
@@ -321,12 +320,12 @@ include __DIR__ . '/../partials/header.php';
             </a>
             
             <div style="display:flex; gap:6px; align-items:center;">
-              <?php if (!empty($userPerms['can_edit']) && ($role === 'admin' || $f['created_by'] == $user['id'])): ?>
+              <?php if ($role === 'admin' || $f['created_by'] == $user['id']): ?>
                 <button type="button" class="btn-icon-sm" style="background: #f59e0b; color: white;" title="Rename Folder" onclick="openRenameFolderModal(<?= $f['id'] ?>, '<?= htmlspecialchars(addslashes($f['name'])) ?>')">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                 </button>
               <?php endif; ?>
-              <?php if ($role !== 'casual' && !empty($userPerms['can_share'])): ?>
+              <?php if ($role !== 'casual'): ?>
                 <button type="button" class="btn-icon-sm" style="background: #6366f1; color: white;" title="Folder Access" onclick="openFolderAccessModal(<?= $f['id'] ?>, '<?= htmlspecialchars(addslashes($f['name'])) ?>')">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                 </button>
@@ -350,12 +349,12 @@ include __DIR__ . '/../partials/header.php';
             </a>
             
             <div style="display:flex; gap:6px; align-items:center;">
-              <?php if (!empty($userPerms['can_edit']) && ($role === 'admin' || $f['created_by'] == $user['id'])): ?>
+              <?php if ($role === 'admin' || $f['created_by'] == $user['id']): ?>
                 <button type="button" class="btn-icon-sm" style="background: #f59e0b; color: white;" title="Rename Folder" onclick="openRenameFolderModal(<?= $f['id'] ?>, '<?= htmlspecialchars(addslashes($f['name'])) ?>')">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                 </button>
               <?php endif; ?>
-              <?php if ($role !== 'casual' && !empty($userPerms['can_share'])): ?>
+              <?php if ($role !== 'casual'): ?>
                 <button type="button" class="btn-icon-sm" style="background: #6366f1; color: white;" title="Folder Access" onclick="openFolderAccessModal(<?= $f['id'] ?>, '<?= htmlspecialchars(addslashes($f['name'])) ?>')">
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
                 </button>
@@ -375,7 +374,7 @@ include __DIR__ . '/../partials/header.php';
       <input type="text" id="innerFileSearch" placeholder="Type filename inside <?= htmlspecialchars($current_folder['name']) ?>..." autocomplete="off">
       <div id="fileSuggestionsDropdown" class="suggestive-dropdown-matrix"></div>
     </div>
-    <?php if ($role !== 'casual' && !empty($userPerms['can_add'])): ?>
+    <?php if ($role !== 'casual'): ?>
       <button type="button" class="btn btn-primary" onclick="DMS.openUploadModal(<?= !empty($current_folder['is_private']) ? 'true' : 'false' ?>, '<?= (int)$current_folder_id ?>')">Upload New File</button>
       <button type="button" class="btn btn-outline" onclick="DMS.openUploadModal(<?= !empty($current_folder['is_private']) ? 'true' : 'false' ?>, '<?= (int)$current_folder_id ?>'); document.querySelector('[data-tab=\'folder\']')?.click();">Upload New Folder</button>
     <?php endif; ?>
@@ -448,25 +447,19 @@ include __DIR__ . '/../partials/header.php';
               </td>
               <td>
                 <div class="actions-container">
-                  <?php if (!empty($userPerms['can_edit'])): ?>
                   <button type="button" class="btn-icon-sm btn-primary" title="Edit Details" onclick="openMasterEditModal(<?= htmlspecialchars(json_encode($doc_row)) ?>)">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 1 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
                   </button>
-                  <?php endif; ?>
 
-                  <?php if (!empty($userPerms['can_share'])): ?>
                   <a href="<?= app_url('api/share.php?id=' . (int)$doc_row['id']) ?>" class="btn-icon-sm" style="background: #6366f1; color: white; text-decoration: none;" title="Share & Manage Access">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path><polyline points="16 6 12 2 8 6"></polyline><line x1="12" y1="2" x2="12" y2="15"></line></svg>
                   </a>
-                  <?php endif; ?>
 
-                  <?php if (!empty($userPerms['can_download'])): ?>
                   <button type="button" class="btn-icon-sm btn-outline" title="Download Document" onclick="DMS.confirm('Download','Choose where to save <?= htmlspecialchars(addslashes($doc_row['filename'])) ?>?', ()=>DMS.downloadFile(<?= (int)$doc_row['id'] ?>, '<?= htmlspecialchars(addslashes($doc_row['filename'])) ?>'))">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
                   </button>
-                  <?php endif; ?>
 
-                  <?php if ($role !== 'casual' && !empty($userPerms['can_checkout'])): ?>
+                  <?php if ($role !== 'casual'): ?>
                     <?php if (empty($doc_row['is_locked'])): ?>
                       <a href="<?= app_url('api/version_control.php?action=checkout&id=' . (int)$doc_row['id'] . '&origin=folders&folder_id=' . (int)$current_folder_id) ?>" class="btn-icon-sm btn-warn" title="Checkout (Lock)">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>
@@ -477,11 +470,9 @@ include __DIR__ . '/../partials/header.php';
                       </a>
                     <?php endif; ?>
 
-                    <?php if (!empty($userPerms['can_delete'])): ?>
                     <button type="button" class="btn-icon-sm btn-danger" title="Delete File" onclick="DMS.confirm('Delete','Move this file to trash?', ()=>location.href='<?= app_url('api/delete.php?id=' . (int)$doc_row['id'] . '&origin=folders') ?>')">
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
                     </button>
-                    <?php endif; ?>
                   <?php endif; ?>
                 </div>
               </td>
@@ -788,7 +779,11 @@ function openMasterEditModal(doc) {
 
     const oldPane = document.getElementById('p_old');
     const ext = doc.filename.split('.').pop().toLowerCase();
-    oldPane.innerHTML = renderPreview(`<?= app_url('api/download.php') ?>?id=${doc.id}&preview=1`, ext, doc.filename);
+    if (['png','jpg','jpeg','gif','webp','svg'].includes(ext)) {
+        oldPane.innerHTML = `<img src="<?= app_url('uploads/') ?>${doc.storage_path}" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px;">`;
+    } else {
+        oldPane.innerHTML = `<div style="text-align: center;"><span style="font-size: 36px; display: block; margin-bottom: 4px;">📄</span><small style="color: #64748b; font-weight: bold;">${ext.toUpperCase()} Source Available</small></div>`;
+    }
 
     const historyList = document.getElementById('m_history_list');
     historyList.innerHTML = '<small style="color: #64748b; text-align: center; display: block; padding: 10px;">Loading history checkpoint backlog logs...</small>';

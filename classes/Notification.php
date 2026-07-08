@@ -46,6 +46,13 @@ class Notification {
         $stmt->execute();
     }
 
+    public function getForUser(int $userId, int $id): ?array {
+        $stmt = $this->db->prepare('SELECT * FROM notifications WHERE id=? AND user_id=? LIMIT 1');
+        $stmt->bind_param('ii', $id, $userId);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_assoc() ?: null;
+    }
+
     public function markAllRead(int $userId): void {
         $stmt = $this->db->prepare('UPDATE notifications SET is_read=1 WHERE user_id=?');
         $stmt->bind_param('i', $userId);

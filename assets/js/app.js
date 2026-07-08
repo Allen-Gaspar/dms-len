@@ -207,13 +207,16 @@ function renderPreview(url, ext, filename) {
     if (['mp4', 'webm', 'mov'].includes(cleanExt)) {
         return `<video class="file-preview-media" controls src="${url}"></video>`;
     }
+    if (['mp3', 'wav', 'ogg', 'm4a'].includes(cleanExt)) {
+        return `<div class="preview-fallback"><strong>${escapeHtml(filename)}</strong><audio controls src="${url}" style="width:min(520px,100%)"></audio></div>`;
+    }
     if (['txt','csv','json','xml','html','htm','css','js','php','sql','md','log'].includes(cleanExt)) {
         return `<iframe class="file-preview-frame code-preview" src="${url}" title="${escapeHtml(filename)}"></iframe>`;
     }
     if (['ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx'].includes(cleanExt)) {
-        return `<div class="preview-fallback office-preview"><strong>${escapeHtml(filename)}</strong><span>This Office file cannot be rendered directly by the browser.</span><a class="btn btn-primary btn-sm" href="${url}">Download / Open</a></div>`;
+        return `<div class="preview-fallback office-preview"><strong>${escapeHtml(filename)}</strong><span>Office preview depends on browser support for this file type.</span><iframe class="file-preview-frame" src="${url}" title="${escapeHtml(filename)}"></iframe></div>`;
     }
-    return `<div class="preview-fallback"><strong>${escapeHtml(filename)}</strong><span>No browser preview available.</span><a class="btn btn-primary btn-sm" href="${url}">Open File</a></div>`;
+    return `<iframe class="file-preview-frame" src="${url}" title="${escapeHtml(filename)}"></iframe>`;
 }
 
 document.addEventListener('DOMContentLoaded', () => {

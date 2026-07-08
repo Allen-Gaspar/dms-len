@@ -121,7 +121,6 @@ include APP_ROOT . '/partials/header.php';
   <tbody>
   <?php if (empty($documents)): ?><tr><td colspan="8" class="empty-row">No private files.</td></tr><?php endif; ?>
   <?php foreach ($documents as $doc):
-    $locker_role = $doc['locker_role'] ?? 'user';
     $can_write = $role !== 'casual' && (int)$doc['uploaded_by'] === $uid;
   ?>
     <tr data-private-file-name="<?= htmlspecialchars(strtolower($doc['filename'])) ?>">
@@ -134,7 +133,7 @@ include APP_ROOT . '/partials/header.php';
       <td class="date-col"><?= htmlspecialchars(substr($doc['created_at'], 0, 10)) ?><span class="timestamp-time"><?= htmlspecialchars(date('h:i A', strtotime($doc['created_at']))) ?></span></td>
       <td><div class="actions-container nowrap">
         <?php if ($can_write): ?>
-          <button class="btn-icon-sm btn-primary" title="Rename" onclick="DMS.renameFile(<?= (int)$doc['id'] ?>, '<?= htmlspecialchars(addslashes($doc['filename'])) ?>')">
+          <button type="button" class="btn-icon-sm btn-primary" title="Edit File Details" onclick="openMasterEditModal(<?= htmlspecialchars(json_encode($doc)) ?>)">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
           </button>
         <?php endif; ?>
@@ -196,7 +195,195 @@ include APP_ROOT . '/partials/header.php';
   </div>
 </div>
 
+<div id="masterEditModal" class="modal-overlay">
+  <div class="modal-wrapper-card">
+    <button type="button" class="modal-close" onclick="closeMasterEditModal()" aria-label="Close">&times;</button>
+    <h3 id="m_title" style="margin: 0 0 5px 0; color: #1e293b; font-size: 20px; font-weight: bold;">Edit File</h3>
+    <p id="m_attribution" style="margin: 0 0 25px 0; color: #64748b; font-size: 13px; font-family: sans-serif; display: flex; align-items: center; gap: 6px;"></p>
+
+    <div class="edit-rename-row">
+      <div class="form-group" style="margin:0; flex:1;">
+        <label>Rename File</label>
+        <input type="text" id="m_rename_filename" placeholder="Filename">
+      </div>
+      <button type="button" class="btn btn-outline" onclick="renameFromEditModal()">Rename</button>
+    </div>
+
+    <div style="display: flex; flex-direction: column; gap: 25px;">
+        <div style="border-top: 1px solid #f1f5f9; padding-top: 15px;">
+            <h4 style="margin: 0 0 12px 0; font-size: 13px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold;">1. Version Upload & File Preview Comparison</h4>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 15px;">
+                <div>
+                  <small style="color: #64748b; font-weight: bold; display: block; margin-bottom: 4px; text-transform: uppercase; font-size: 11px;">Active Source File</small>
+                  <div id="p_old" class="preview-box-split"></div>
+                </div>
+                <div>
+                  <small style="color: #64748b; font-weight: bold; display: block; margin-bottom: 4px; text-transform: uppercase; font-size: 11px;">New Preview</small>
+                  <div id="p_new" class="preview-box-split" style="color: #94a3b8; font-size: 12px; font-style: italic; text-align: center;">No preview yet.</div>
+                </div>
+            </div>
+
+            <form id="m_upload_form" method="POST" action="<?= app_url('api/version_control.php?action=commit_revision') ?>" enctype="multipart/form-data" style="margin: 0;">
+                <input type="hidden" name="document_id" id="m_doc_id">
+                <label style="display: block; background: #0284c7; color: #fff; padding: 12px; border-radius: 6px; font-weight: bold; font-size: 13px; cursor: pointer; text-align: center; margin-bottom: 10px; transition: background 0.2s;" onmouseover="this.style.background='#0369a1'" onmouseout="this.style.background='#0284c7'">
+                    Choose New File
+                    <input type="file" name="revised_document" id="m_file_input" style="display: none;" onchange="renderCompareViewDelta(this)">
+                </label>
+                <button type="submit" class="btn btn-primary" style="width: 100%; padding: 12px; margin-top: 15px; font-weight: bold; background: #16a34a; border: none; color: #fff; border-radius: 6px; cursor: pointer; transition: background 0.2s;" onmouseover="this.style.background='#15803d'" onmouseout="this.style.background='#16a34a'">Apply Changes</button>
+            </form>
+        </div>
+
+        <div style="border-top: 1px solid #f1f5f9; padding-top: 15px;">
+            <h4 style="margin: 0 0 12px 0; font-size: 13px; color: #475569; text-transform: uppercase; letter-spacing: 0.5px; font-weight: bold;">2. Version History</h4>
+            <div id="m_history_list" style="max-height: 160px; overflow-y: auto; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.01);"></div>
+        </div>
+    </div>
+  </div>
+</div>
+
 <script>
+window.DMS = window.DMS || {
+    toast: function(msg, type = 'success') {
+        const t = document.createElement('div');
+        t.style.cssText = `position:fixed; bottom:20px; right:20px; padding:12px 24px; background:${type==='error'?'#ef4444':'#10b981'}; color:#fff; font-weight:bold; border-radius:6px; z-index:99999; box-shadow:0 4px 12px rgba(0,0,0,0.15); font-family:sans-serif; font-size:13px;`;
+        t.textContent = msg;
+        document.body.appendChild(t);
+        setTimeout(() => t.remove(), 2800);
+    },
+    confirm: function(title, text, callback) {
+        if (window.confirm(`${title}\n\n${text}`)) callback();
+    },
+    openModal: function(id) {
+        const m = document.getElementById(id);
+        if (m) { m.classList.add('is-active'); document.body.style.overflow = 'hidden'; }
+    },
+    closeModal: function(id) {
+        const m = document.getElementById(id);
+        if (m) { m.classList.remove('is-active'); document.body.style.overflow = ''; }
+    },
+    openUploadModal: function(show, folderId) {
+        const url = new URL('<?= page_url('admin_dashboard.php') ?>');
+        url.searchParams.set('open_upload', '1');
+        url.searchParams.set('folder_id', folderId);
+        window.location.href = url.toString();
+    },
+    downloadFile: function(id, filename) {
+        window.location.href = `<?= app_url('api/download.php?id=') ?>` + id;
+    },
+    openFileDetail: function(id) {
+        openMasterEditModal({ id: id, filename: 'Fetching metadata...' });
+        fetch('<?= app_url('api/version_control.php?action=get_history&id=') ?>' + id)
+        .then(res => res.json())
+        .then(v => {
+            if (v && v.length > 0) {
+                document.getElementById('m_title').textContent = "File Details: " + v[0].filename;
+                document.getElementById('m_rename_filename').value = v[0].filename;
+            }
+        });
+    },
+    renameFileTo: function(id, nextName, currentName) {
+        if (!nextName || nextName.trim() === '') { this.toast('Name cannot be empty', 'error'); return; }
+        fetch('<?= app_url('api/rename.php') ?>', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `id=${id}&filename=${encodeURIComponent(nextName)}`
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                this.toast('File renamed successfully');
+                setTimeout(() => window.location.reload(), 600);
+            } else {
+                this.toast(data.message || 'Rename failed', 'error');
+            }
+        });
+    },
+    previewVersion: function(url, ext, title) {
+        window.open(url, '_blank');
+    }
+};
+
+function openMasterEditModal(doc) {
+    const modal = document.getElementById('masterEditModal');
+    document.getElementById('m_title').textContent = "Edit File: " + doc.filename;
+    document.getElementById('m_doc_id').value = doc.id;
+    document.getElementById('m_rename_filename').value = doc.filename;
+    
+    document.getElementById('m_attribution').innerHTML = ` <strong>Edited By:</strong> ${doc.uploader_name || 'System User'} <small style="text-transform: uppercase; background: #e2e8f0; padding: 2px 6px; border-radius: 4px; font-weight: bold; color: #475569; font-size: 10px; margin-left: 4px;">${doc.uploader_role || 'USER'}</small>`;
+
+    fetch('<?= app_url('api/version_control.php?action=silent_lock&id=') ?>' + doc.id);
+
+    const oldPane = document.getElementById('p_old');
+    const ext = doc.filename.split('.').pop().toLowerCase();
+    if (['png','jpg','jpeg','gif','webp','svg'].includes(ext)) {
+        oldPane.innerHTML = `<img src="<?= app_url('uploads/') ?>${doc.storage_path}" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px;">`;
+    } else {
+        oldPane.innerHTML = `<div style="text-align: center;"><span style="font-size: 36px; display: block; margin-bottom: 4px;">📄</span><small style="color: #64748b; font-weight: bold;">${ext.toUpperCase()} Object Preview Restrained</small></div>`;
+    }
+
+    const historyList = document.getElementById('m_history_list');
+    historyList.innerHTML = '<small style="color: #64748b; text-align: center; display: block; padding: 10px;">Loading logs history repository...</small>';
+    
+    fetch('<?= app_url('api/version_control.php?action=get_history&id=') ?>' + doc.id)
+    .then(res => res.json())
+    .then(versions => {
+        historyList.innerHTML = '';
+        if (!versions || versions.length === 0) {
+            historyList.innerHTML = '<small style="color: #94a3b8; text-align: center; font-style: italic; display: block; padding: 10px;">No history update recorded.</small>';
+            return;
+        }
+        versions.forEach(v => {
+            historyList.innerHTML += `
+                <div style="display: flex; justify-content: space-between; align-items: center; background: #fff; border: 1px solid #e2e8f0; padding: 8px 12px; border-radius: 6px; font-size: 12px; gap: 10px;">
+                    <div><strong>Checkpoint Version v${v.version_number}</strong><br><small style="color: #64748b; display: block; margin-top: 2px;">Updated at: ${v.created_at}</small></div>
+                    <div class="actions-container nowrap">
+                      <button type="button" class="btn btn-sm btn-outline" onclick="DMS.previewVersion('<?= app_url('api/download.php') ?>?id=${doc.id}&version_id=${v.id}&preview=1', '${ext}', 'Version v${v.version_number}')">Preview</button>
+                      <a href="<?= app_url('api/version_control.php') ?>?action=rollback&doc_id=${doc.id}&version_id=${v.id}" class="btn btn-sm btn-warn" style="font-size: 11px; padding: 4px 8px; font-weight: bold; text-decoration: none; border-radius: 4px;" onclick="return confirm('Revert active file to this version state? The existing copy will be replaced.')">Rollback</a>
+                    </div>
+                </div>`;
+        });
+    }).catch(() => historyList.innerHTML = '<small style="color: #ef4444; text-align: center; display: block; padding: 10px;">Failed to fetch history logs.</small>');
+
+    modal.classList.add('is-active');
+    document.body.style.overflow = 'hidden';
+}
+
+function renameFromEditModal() {
+    const id = document.getElementById('m_doc_id').value;
+    const nextName = document.getElementById('m_rename_filename').value;
+    const currentName = document.getElementById('m_title').textContent.replace(/^Edit File:\s*/, '');
+    DMS.renameFileTo(id, nextName, currentName);
+}
+
+function closeMasterEditModal() {
+    const modal = document.getElementById('masterEditModal');
+    const docId = document.getElementById('m_doc_id').value;
+    if (docId) {
+        fetch('<?= app_url('api/version_control.php?action=silent_unlock&id=') ?>' + docId);
+    }
+    modal.classList.remove('is-active');
+    document.body.style.overflow = '';
+    document.getElementById('p_new').innerHTML = 'No preview yet.';
+    document.getElementById('m_file_input').value = '';
+}
+
+function renderCompareViewDelta(input) {
+    const pane = document.getElementById('p_new');
+    if (input.files && input.files[0]) {
+        const file = input.files[0];
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (['png','jpg','jpeg','gif','webp','svg'].includes(ext)) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                pane.innerHTML = `<img src="${e.target.result}" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px;">`;
+            };
+            reader.readAsDataURL(file);
+        } else {
+            pane.innerHTML = `<div style="text-align: center; font-size: 12px; padding: 10px;">📄 <strong style="display: block; word-break: break-all; margin-top: 4px;">${file.name}</strong><small style="color: #16a34a; font-weight: bold; display: block; margin-top: 4px;">Ready to Update</small></div>`;
+        }
+    }
+}
+
 function openShareModal(id, name) {
   document.getElementById('shareDocId').value = id;
   document.getElementById('shareDocName').textContent = name;
@@ -211,7 +398,6 @@ function toggleShareAll(master) {
 function submitShare() {
   const email = document.getElementById('shareUserEmail').value.trim();
   if (!email) { DMS.toast('Type the user email first', 'error'); return; }
-  DMS.showLoading();
   fetch('<?= app_url('api/share.php?action=grant_direct_access') ?>', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -228,21 +414,36 @@ function submitShare() {
   }).then(r=>r.json()).then(d => {
     if (d.success) { DMS.toast('Shared successfully'); DMS.closeModal('shareModal'); }
     else DMS.toast(d.message || 'Share failed', 'error');
-  }).finally(() => DMS.hideLoading());
+  });
 }
+
 document.addEventListener('DOMContentLoaded', () => {
   const folderInput = document.getElementById('privateFolderSearch');
-  const folderSuggest = document.getElementById('privateFolderSuggest');
   const folderCards = Array.from(document.querySelectorAll('.private-folder-card'));
-  if (folderInput && folderSuggest) {
+  if (folderInput) {
     folderInput.addEventListener('input', () => {
       const q = folderInput.value.trim().toLowerCase();
-      const matches = folderCards.filter(card => (card.dataset.folderName || '').includes(q));
-      folderCards.forEach(card => { card.style.display = !q || matches.includes(card) ? '' : 'none'; });
-      folderSuggest.innerHTML = matches.slice(0, 6).map(card => `<button type="button" class="suggestion-item" onclick="location.href='${card.href}'">${card.querySelector('.private-folder-name')?.textContent || 'Folder'}</button>`).join('') || '<button type="button" class="suggestion-item">No folders found.</button>';
-      folderSuggest.style.display = q ? 'block' : 'none';
+      folderCards.forEach(card => {
+         card.style.display = !q || (card.dataset.folderName || '').includes(q) ? '' : 'none';
+      });
     });
   }
+
+  document.body.addEventListener('click', function(e) {
+      const btn = e.target.closest('[data-confirm]');
+      if (btn) {
+          e.preventDefault();
+          if (confirm(btn.getAttribute('data-confirm'))) {
+              const form = document.getElementById(btn.getAttribute('data-form'));
+              if (form) form.submit();
+          }
+      }
+  });
+
+  window.addEventListener('click', function(e) {
+      const modal = document.getElementById('masterEditModal');
+      if (e.target === modal) { closeMasterEditModal(); }
+  });
 });
 </script>
 <?php include APP_ROOT . '/partials/footer.php'; ?>

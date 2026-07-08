@@ -29,6 +29,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = $db->prepare('INSERT INTO users (username,email,password_hash,role,admin_id) VALUES (?,?,?,?,?)');
                 $stmt->bind_param('ssssi', $uname, $email, $hash, $role, $adminId);
                 $stmt->execute();
+                $newUserId = (int)$stmt->insert_id;
+                $perms = [
+                    'can_add' => isset($_POST['can_add']) ? 1 : 0,
+                    'can_download' => isset($_POST['can_download']) ? 1 : 0,
+                    'can_share' => isset($_POST['can_share']) ? 1 : 0,
+                    'can_delete' => isset($_POST['can_delete']) ? 1 : 0,
+                    'can_edit' => isset($_POST['can_edit']) ? 1 : 0,
+                    'can_checkout' => isset($_POST['can_checkout']) ? 1 : 0,
+                ];
+                $userModel->setPermissions($newUserId, $perms, $adminId);
                 audit_log($user['id'], 'USER_CREATE', "Created user '$uname'");
                 flash_redirect(page_url('users.php'), 'ok', "User '$uname' created.");
             } catch (Exception $e) {
@@ -94,9 +104,47 @@ include __DIR__ . '/../partials/header.php';
 
 <div class="page-header">
   <h2 class="page-title">User Management</h2>
+  <button type="button" class="btn btn-primary" onclick="DMS.openModal('createUserModal')">Add New User</button>
 </div>
 
-<div class="card">
+<div id="createUserModal" class="modal-overlay">
+  <div class="modal-card modal-lg">
+    <button class="modal-close" onclick="DMS.closeModal('createUserModal')" aria-label="Close">&times;</button>
+    <h3>Create New User</h3>
+    <form method="POST">
+      <input type="hidden" name="action" value="create">
+      <div class="user-create-grid">
+        <div class="form-group"><label>Username</label><input type="text" name="username" required></div>
+        <div class="form-group"><label>Email</label><input type="email" name="email" required></div>
+        <div class="form-group"><label>Password</label><input type="password" name="password" minlength="6" required></div>
+        <div class="form-group">
+          <label>Role</label>
+          <select name="role" required>
+            <option value="">Select role</option>
+            <option value="admin">Admin</option>
+            <option value="contributor">Contributor</option>
+            <option value="casual">Casual</option>
+          </select>
+        </div>
+      </div>
+      <h4 class="modal-section-title">Access Control</h4>
+      <div class="perm-grid">
+        <label><input type="checkbox" name="can_add" checked> Add File</label>
+        <label><input type="checkbox" name="can_edit" checked> Edit</label>
+        <label><input type="checkbox" name="can_delete" checked> Delete</label>
+        <label><input type="checkbox" name="can_download" checked> Download</label>
+        <label><input type="checkbox" name="can_share" checked> Share</label>
+        <label><input type="checkbox" name="can_checkout" checked> Lock/Unlock</label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="DMS.closeModal('createUserModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create User</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="card legacy-create-user-card" hidden>
   <h3>Create New User</h3>
   <form method="POST" class="inline-form">
     <input type="hidden" name="action" value="create">
@@ -122,9 +170,9 @@ include __DIR__ . '/../partials/header.php';
     <label><input type="checkbox" name="can_add" checked> Add File</label>
     <label><input type="checkbox" name="can_download" checked> Download</label>
     <label><input type="checkbox" name="can_share" checked> Share</label>
-    <label><input type="checkbox" name="can_delete"> Delete</label>
-    <label><input type="checkbox" name="can_edit"> Edit</label>
-    <label><input type="checkbox" name="can_checkout"> Lock/Unlock</label>
+    <label><input type="checkbox" name="can_delete" checked> Delete</label>
+    <label><input type="checkbox" name="can_edit" checked> Edit</label>
+    <label><input type="checkbox" name="can_checkout" checked> Lock/Unlock</label>
   </div>
   <button type="submit" class="btn btn-secondary" style="margin-top:12px">Apply to Selected</button>
 </div>

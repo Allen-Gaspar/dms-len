@@ -8,8 +8,9 @@ header('Content-Type: application/json');
 $user = require_login();
 $db   = get_db();
 $role = $user['role'];
+$perms = (new User())->getPermissions((int)$user['id']);
 
-if ($role === 'casual') {
+if ($role === 'casual' || empty($perms['can_add'])) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
     exit;
 }
@@ -45,10 +46,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['files'])) {
     $files = $_FILES['files'];
     $count = is_array($files['name']) ? count($files['name']) : 1;
     $uploaded = 0;
-    $folderId = $_POST['folder_id'] ?? '';
-    $folderIdParam = ($folderId === '' || $folderId === 'root') ? null : (int)$folderId;
-    $isPrivate = (int)($_POST['is_private'] ?? 0);
-    $shareScope = $_POST['sharing_scope'] ?? ($isPrivate ? 'private' : 'all');
+    
+    // 1. Sanitize incoming folder selection
+    $folderId = $_POST['folder_id'] ?? 'root';
+    $folderIdParam = ($folderId === '' || $folderId === 'root' || $folderId === '0') ? null : (int)$folderId;
+    
+    // 2. Look up the destination folder's real privacy setting from the database
+    $inheritedPrivacy = 0;
+    if ($folderIdParam !== null) {
+        $folderCheck = $db->prepare("SELECT is_private FROM folders WHERE id = ?");
+        $folderCheck->bind_param("i", $folderIdParam);
+        $folderCheck->execute();
+        $folderResult = $folderCheck->get_result()->fetch_assoc();
+        if ($folderResult) {
+            $inheritedPrivacy = (int)$folderResult['is_private'];
+        }
+    }
+
+    // If the folder is private, force the file to be private. Otherwise, default to 0.
+    $priv = $inheritedPrivacy; 
+    
+    // Sharing scope selection logic
+    $shareScope = $priv ? 'private' : 'all';
 
     if (!is_dir(UPLOAD_DIR)) mkdir(UPLOAD_DIR, 0755, true);
 
@@ -68,12 +87,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['files'])) {
 
         if (!move_uploaded_file($tmp, $dest)) continue;
 
-        $priv = ($shareScope === 'private' || $isPrivate) ? 1 : 0;
+        // 3. Save to documents table with verified folder ID and verified privacy status
         $stmt = $db->prepare('INSERT INTO documents (filename, storage_path, size, uploaded_by, folder_id, is_private) VALUES (?, ?, ?, ?, ?, ?)');
         $stmt->bind_param('ssiiii', $orig, $stored, $size, $user['id'], $folderIdParam, $priv);
         $stmt->execute();
         $docId = $stmt->insert_id;
 
+        // Only register global shares if the file is genuinely public
         if ($shareScope === 'all' && !$priv) {
             $col = $db->query("SHOW COLUMNS FROM document_shares LIKE 'share_with_all'");
             if ($col && $col->num_rows > 0) {
@@ -89,8 +109,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !empty($_FILES['files'])) {
         $uploaded++;
     }
 
-    echo json_encode(['success' => $uploaded > 0, 'message' => $uploaded . ' file(s) uploaded', 'count' => $uploaded]);
+    echo json_encode(['success' => $uploaded > 0, 'message' => $uploaded . ' file(s) uploaded successfully.']);
     exit;
 }
-
-echo json_encode(['success' => false, 'message' => 'Invalid request']);

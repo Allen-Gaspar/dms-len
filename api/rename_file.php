@@ -4,6 +4,11 @@ header('Content-Type: application/json');
 
 $user = require_role('contributor', 'admin');
 $db = get_db();
+$perms = (new User())->getPermissions((int)$user['id']);
+if (empty($perms['can_edit'])) {
+    echo json_encode(['success' => false, 'message' => 'You do not have edit access.']);
+    exit;
+}
 
 $id = (int)($_POST['id'] ?? 0);
 $filename = basename(trim($_POST['filename'] ?? ''));

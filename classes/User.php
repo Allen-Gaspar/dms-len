@@ -4,6 +4,22 @@ class User {
 
     public function __construct() {
         $this->db = get_db();
+        $this->ensurePermissionsTable();
+    }
+
+    private function ensurePermissionsTable(): void {
+        $this->db->query("CREATE TABLE IF NOT EXISTS user_permissions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL UNIQUE,
+            can_add TINYINT(1) DEFAULT 1,
+            can_download TINYINT(1) DEFAULT 1,
+            can_share TINYINT(1) DEFAULT 1,
+            can_delete TINYINT(1) DEFAULT 1,
+            can_edit TINYINT(1) DEFAULT 1,
+            can_checkout TINYINT(1) DEFAULT 1,
+            updated_by INT DEFAULT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )");
     }
 
     public function findById(int $id): ?array {
@@ -42,6 +58,7 @@ class User {
     }
 
     public function getPermissions(int $userId): array {
+        $this->ensurePermissionsTable();
         $defaults = ['can_add' => 1, 'can_download' => 1, 'can_share' => 1, 'can_delete' => 1, 'can_edit' => 1, 'can_checkout' => 1];
         $stmt = $this->db->prepare('SELECT * FROM user_permissions WHERE user_id=?');
         $stmt->bind_param('i', $userId);
@@ -51,14 +68,7 @@ class User {
     }
 
     public function setPermissions(int $userId, array $perms, int $updatedBy): void {
-        $this->db->query("CREATE TABLE IF NOT EXISTS user_permissions (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL UNIQUE,
-            can_add TINYINT(1) DEFAULT 1, can_download TINYINT(1) DEFAULT 1,
-            can_share TINYINT(1) DEFAULT 1, can_delete TINYINT(1) DEFAULT 0,
-            can_edit TINYINT(1) DEFAULT 0, can_checkout TINYINT(1) DEFAULT 0,
-            updated_by INT DEFAULT NULL, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        )");
+        $this->ensurePermissionsTable();
         $stmt = $this->db->prepare(
             'INSERT INTO user_permissions (user_id,can_add,can_download,can_share,can_delete,can_edit,can_checkout,updated_by)
              VALUES (?,?,?,?,?,?,?,?)
@@ -69,9 +79,9 @@ class User {
         $ca = (int)($perms['can_add'] ?? 1);
         $cd = (int)($perms['can_download'] ?? 1);
         $cs = (int)($perms['can_share'] ?? 1);
-        $cx = (int)($perms['can_delete'] ?? 0);
-        $ce = (int)($perms['can_edit'] ?? 0);
-        $cc = (int)($perms['can_checkout'] ?? 0);
+        $cx = (int)($perms['can_delete'] ?? 1);
+        $ce = (int)($perms['can_edit'] ?? 1);
+        $cc = (int)($perms['can_checkout'] ?? 1);
         $stmt->bind_param('iiiiiiii', $userId, $ca, $cd, $cs, $cx, $ce, $cc, $updatedBy);
         $stmt->execute();
     }

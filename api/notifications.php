@@ -15,6 +15,19 @@ if ($action === 'mark_all') {
     flash_redirect($_SERVER['HTTP_REFERER'] ?? page_url('dashboard.php'), 'ok', 'All notifications marked read.');
 }
 
+if ($action === 'open' && isset($_GET['id'])) {
+    $id = (int)$_GET['id'];
+    $row = $notif->getForUser((int)$user['id'], $id);
+    if ($row) {
+        $notif->markRead((int)$user['id'], $id);
+        $link = trim($row['link'] ?? '');
+        header('Location: ' . ($link !== '' && $link !== '#' ? $link : page_url('dashboard.php')));
+        exit;
+    }
+    header('Location: ' . page_url('dashboard.php'));
+    exit;
+}
+
 if ($action === 'mark' && isset($_GET['id'])) {
     $notif->markRead((int)$user['id'], (int)$_GET['id']);
     header('Content-Type: application/json');

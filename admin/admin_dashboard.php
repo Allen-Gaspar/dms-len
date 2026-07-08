@@ -341,12 +341,14 @@ include $header_path;
             <div style="margin-bottom: 1.5rem;">
                 <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 0.5rem;">Destination Folder</label>
                 <select name="folder_id" style="width: 100%; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.625rem; font-size: 0.875rem; background: #fff; color: #1e293b;">
-                    <option value="0">/ Root Base Directory Layer</option>
+                    <option value="root">📁 / Root Base (Public)</option>
                     <?php
-                    $folders_fetch = $db->query("SELECT id, name FROM folders ORDER BY name ASC");
+                    // Fetch folders with their explicit privacy flag to differentiate them visually
+                    $folders_fetch = $db->query("SELECT id, name, is_private FROM folders ORDER BY is_private DESC, name ASC");
                     if ($folders_fetch !== false) {
                         while($f_row = $folders_fetch->fetch_assoc()) {
-                            echo "<option value='".(int)$f_row['id']."'>📁 ".htmlspecialchars($f_row['name'])."</option>";
+                            $badge = ((int)$f_row['is_private'] === 1) ? '🔒 Private' : '📁 Public';
+                            echo "<option value='".(int)$f_row['id']."'>".$badge." — ".htmlspecialchars($f_row['name'])."</option>";
                         }
                     }
                     ?>

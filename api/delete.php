@@ -2,6 +2,10 @@
 require_once __DIR__ . '/../core/auth.php';
 $user = require_role('contributor', 'admin');
 $db   = get_db();
+$perms = (new User())->getPermissions((int)$user['id']);
+if (empty($perms['can_delete'])) {
+    flash_redirect(page_url('documents.php'), 'err', 'You do not have delete access.');
+}
 
 $id = (int)($_GET['id'] ?? $_POST['id'] ?? 0);
 if ($id <= 0) flash_redirect(page_url('documents.php'), 'err', 'Invalid document ID.');

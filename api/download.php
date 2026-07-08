@@ -2,6 +2,11 @@
 require_once __DIR__ . '/../core/auth.php';
 $user = require_login();
 $db   = get_db();
+$perms = (new User())->getPermissions((int)$user['id']);
+if (empty($perms['can_download'])) {
+    http_response_code(403);
+    die('Download access denied.');
+}
 
 $id = (int)($_GET['id'] ?? 0);
 $versionId = (int)($_GET['version_id'] ?? 0);

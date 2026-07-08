@@ -5,6 +5,16 @@
 require_once __DIR__ . '/../core/auth.php';
 $user = require_role('contributor', 'admin');
 $db   = get_db();
+$perms = (new User())->getPermissions((int)$user['id']);
+if (empty($perms['can_share'])) {
+    if (isset($_GET['action'])) {
+        header('Content-Type: application/json');
+        echo json_encode(['success' => false, 'message' => 'You do not have share access.']);
+        exit;
+    }
+    header('Location: ' . page_url('documents.php?err=' . urlencode('You do not have share access.')));
+    exit;
+}
 
 // ── 1. ADVANCED MODAL HEADLESS JSON API ENDPOINT CONTROLLER CHANNEL ───
 if (isset($_GET['action'])) {

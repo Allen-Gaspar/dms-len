@@ -5,6 +5,7 @@
 require_once __DIR__ . '/../core/auth.php';
 $user = require_role('contributor', 'admin');
 $db   = get_db();
+$perms = (new User())->getPermissions((int)$user['id']);
 
 $action = $_GET['action'] ?? '';
 $id     = (int)($_GET['id'] ?? 0);
@@ -105,6 +106,9 @@ if ($action === 'silent_unlock') {
 
 // ── 4. POST ACTION: COMMIT NEW OVERWRITE VERSION FILE REVISION ──────────
 if ($action === 'commit_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (empty($perms['can_edit'])) {
+        context_redirect('err', 'You do not have edit access.');
+    }
     $doc_id = (int)($_POST['document_id'] ?? 0);
     
     if ($doc_id <= 0 || !isset($_FILES['revised_document']) || $_FILES['revised_document']['error'] !== UPLOAD_ERR_OK) {
@@ -149,6 +153,9 @@ if ($action === 'commit_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
 // ── 5. GET ACTION: OPERATE HISTORICAL CHECKPOINT REGRESSION ROLLBACK ────
 if ($action === 'rollback') {
+    if (empty($perms['can_edit'])) {
+        context_redirect('err', 'You do not have edit access.');
+    }
     $doc_id     = (int)($_GET['doc_id'] ?? 0);
     $version_id = (int)($_GET['version_id'] ?? 0);
     
@@ -189,6 +196,9 @@ if (!can_access_document($db, $user, $doc)) { context_redirect('err', 'Access de
 
 // Checkout Execution
 if ($action === 'checkout') {
+    if (empty($perms['can_checkout'])) {
+        context_redirect('err', 'You do not have lock/unlock access.');
+    }
     if ($doc['is_locked']) { 
         context_redirect('err', "Document is already locked."); 
     }
@@ -203,6 +213,9 @@ if ($action === 'checkout') {
 
 // Checkin Execution (Unlock)
 if ($action === 'checkin') {
+    if (empty($perms['can_checkout'])) {
+        context_redirect('err', 'You do not have lock/unlock access.');
+    }
     if (!$doc['is_locked']) { 
         context_redirect('err', 'Document is not locked.'); 
     }
