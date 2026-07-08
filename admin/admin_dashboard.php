@@ -325,22 +325,23 @@ include $header_path;
     </div>
 </div>
 
-<!-- OVERLAY WINDOW MODALS -->
 <div id="quickUploadModal" style="position: fixed; inset: 0; z-index: 100; display: none; background: rgba(15,23,42,0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 1rem;">
     <div style="background: #ffffff; border-radius: 0.75rem; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.1); width: 100%; max-width: 30rem; overflow: hidden; border: 1px solid #e2e8f0;">
         <div style="padding: 1rem 1.5rem; border-bottom: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; background: #f8fafc;">
             <h3 style="font-size: 1rem; font-weight: 700; color: #0f172a;">Upload New Document</h3>
-            <button onclick="toggleModal('quickUploadModal', false)" style="background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer;">&times;</button>
+            <button onclick="toggleModal('quickUploadModal', false)" style="background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer; line-height: 1;">&times;</button>
         </div>
-        <form method="POST" action="<?= app_url('api/upload.php') ?>" enctype="multipart/form-data" style="padding: 1.5rem;">
+        
+        <form id="adminUploadForm" style="padding: 1.5rem;">
             <div style="margin-bottom: 1rem;">
                 <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 0.5rem;">Select File</label>
                 <input type="file" name="files[]" required style="width: 100%; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.5rem; font-size: 0.875rem;">
             </div>
+            
             <div style="margin-bottom: 1.5rem;">
-                <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 0.5rem;">Target Folder</label>
+                <label style="display: block; font-size: 0.75rem; font-weight: 700; color: #475569; text-transform: uppercase; margin-bottom: 0.5rem;">Destination Folder</label>
                 <select name="folder_id" style="width: 100%; border: 1px solid #e2e8f0; border-radius: 0.5rem; padding: 0.625rem; font-size: 0.875rem; background: #fff; color: #1e293b;">
-                    <option value="root">/ Root Base Directory Layer</option>
+                    <option value="0">/ Root Base Directory Layer</option>
                     <?php
                     $folders_fetch = $db->query("SELECT id, name FROM folders ORDER BY name ASC");
                     if ($folders_fetch !== false) {
@@ -351,9 +352,10 @@ include $header_path;
                     ?>
                 </select>
             </div>
+            
             <div style="border-top: 1px solid #f1f5f9; padding-top: 1rem; display: flex; justify-content: flex-end; gap: 0.75rem;">
                 <button type="button" onclick="toggleModal('quickUploadModal', false)" style="padding: 0.5rem 1rem; background: #f1f5f9; color: #475569; border-radius: 0.5rem; border: none; font-weight: 700; font-size: 0.875rem; cursor: pointer;">Cancel</button>
-                <button type="submit" style="padding: 0.5rem 1.25rem; background: #2563eb; color: #fff; border-radius: 0.5rem; border: none; font-weight: 700; font-size: 0.875rem; cursor: pointer;">Upload</button>
+                <button type="submit" id="uploadSubmitBtn" style="padding: 0.5rem 1.25rem; background: #2563eb; color: #fff; border-radius: 0.5rem; border: none; font-weight: 700; font-size: 0.875rem; cursor: pointer;">Upload</button>
             </div>
         </form>
     </div>
@@ -375,64 +377,74 @@ include $header_path;
 </div>
 
 <script>
+// ── 1. MODAL VISIBILITY CONTROLLER ────────────────────────────────────
 function toggleModal(modalId, show) {
     const target = document.getElementById(modalId);
     if (!target) return;
     if (show) {
         target.style.display = 'flex';
         document.body.style.overflow = 'hidden';
+        
+        // Quietly reset any old status text from previous attempts
+        const msgBox = document.getElementById('uploadStatusMessage');
+        if (msgBox) msgBox.style.display = 'none';
     } else {
         target.style.display = 'none';
         document.body.style.overflow = '';
     }
 }
 
-document.addEventListener("DOMContentLoaded", () => {
-if (typeof Chart === 'undefined') {
-    const timeline = document.getElementById('historicalActivityTimelineChart');
-    if (timeline && timeline.parentElement) {
-        timeline.parentElement.innerHTML = '<div class="empty-row" style="height:100%; display:flex; align-items:center; justify-content:center;">Graph library unavailable. Please check the Chart.js asset.</div>';
-    }
-    return;
-}
-<?php if (!empty($extensions_breakdown)): ?>
-    const ctxA = document.getElementById('fileTypeDistributionChart').getContext('2d');
-    new Chart(ctxA, {
-        type: 'doughnut',
-        data: {
-            labels: Object.keys(<?= json_encode($extensions_breakdown) ?>).map(k => k.toUpperCase()),
-            datasets: [{
-                data: Object.values(<?= json_encode($extensions_breakdown) ?>),
-                backgroundColor: ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b'],
-                borderWidth: 2, borderColor: '#ffffff'
-            }]
-        },
-        options: { 
-            responsive: true, 
-            maintainAspectRatio: false, 
-            // ── ADD LAYOUT PADDING TO SHIFT UPWARD ──
-            layout: {
-                padding: {
-                    bottom: 15 // Adjust this number higher to nudge the doughnut further up
-                }
-            },
-            plugins: { 
-                legend: { 
-                    position: 'bottom',
-                    labels: {
-                        padding: 15 // Keeps a nice clean gap between the shifted chart and the labels
-                    }
-                } 
-            }, 
-            cutout: '72%' 
-        }
-    });
-<?php endif; ?>
+// ── 2. GLOBAL TIMELINE DATA REPOSITORY ────────────────────────────────
+// Safely maps PHP metrics out into a globally accessible JS object context
+const timelineRepository = <?= json_encode($chart_series ?? ['daily'=>['labels'=>[],'adds'=>[],'edits'=>[],'deletes'=>[],'checkouts'=>[],'shares'=>[]]]) ?>;
 
-    // 1. Dito in-initialize ang iyong line graph (Mananatili itong pareho)
-    const timelineRepository = <?= json_encode($chart_series) ?>;
+function getChartDatasetScope(scope) {
+    const source = timelineRepository[scope] || { labels: [], adds: [], edits: [], deletes: [], checkouts: [], shares: [] };
+    return {
+        labels: source.labels,
+        datasets: [
+            { label: 'Adds / Uploads', data: source.adds, borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.04)', borderWidth: 3, tension: 0.3, fill: true },
+            { label: 'Edits', data: source.edits, borderColor: '#06b6d4', backgroundColor: 'transparent', borderWidth: 2.5, tension: 0.25 },
+            { label: 'Deletes', data: source.deletes, borderColor: '#ef4444', backgroundColor: 'transparent', borderWidth: 2, borderDash: [4, 4], tension: 0.1 },
+            { label: 'Checkouts', data: source.checkouts, borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 2.5, tension: 0.3 },
+            { label: 'Shares', data: source.shares, borderColor: '#10b981', backgroundColor: 'transparent', borderWidth: 2, borderDash: [6, 2], tension: 0.2 }
+        ]
+    };
+}
+
+// ── 3. INTERACTIVE ANALYTICS ENGINE (CHART.JS) ────────────────────────
+document.addEventListener("DOMContentLoaded", () => {
+    if (typeof Chart === 'undefined') {
+        const timeline = document.getElementById('historicalActivityTimelineChart');
+        if (timeline && timeline.parentElement) {
+            timeline.parentElement.innerHTML = '<div class="empty-row" style="height:100%; display:flex; align-items:center; justify-content:center;">Graph library unavailable. Please check the Chart.js asset.</div>';
+        }
+        return;
+    }
+
+    <?php if (!empty($extensions_breakdown)): ?>
+        const ctxA = document.getElementById('fileTypeDistributionChart').getContext('2d');
+        new Chart(ctxA, {
+            type: 'doughnut',
+            data: {
+                labels: Object.keys(<?= json_encode($extensions_breakdown) ?>).map(k => k.toUpperCase()),
+                datasets: [{
+                    data: Object.values(<?= json_encode($extensions_breakdown) ?>),
+                    backgroundColor: ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b'],
+                    borderWidth: 2, borderColor: '#ffffff'
+                }]
+            },
+            options: { 
+                responsive: true, 
+                maintainAspectRatio: false, 
+                layout: { padding: { bottom: 15 } },
+                plugins: { legend: { position: 'bottom', labels: { padding: 15 } } }, 
+                cutout: '72%' 
+            }
+        });
+    <?php endif; ?>
+
     const ctxTimeline = document.getElementById('historicalActivityTimelineChart').getContext('2d');
-    
     let activityChartInstance = new Chart(ctxTimeline, {
         type: 'line',
         data: getChartDatasetScope('daily'),
@@ -449,69 +461,112 @@ if (typeof Chart === 'undefined') {
     });
     window.activityChartInstance = activityChartInstance;
 
-    // 2. ANG MATALINONG UPDATE (Ilagay ito mismo sa ilalim ng activityChartInstance):
-    // Kusa nitong babantayan ang wrapper ng canvas at aayusin ang size tuwing gagalaw ang sidebar.
+    // Responsive Canvas Observer (Keeps layout sizing crisp on sidebar adjustment shifts)
     const chartWrapper = ctxTimeline.canvas.parentElement;
     if (chartWrapper) {
         const lineGraphObserver = new ResizeObserver(() => {
-            if (activityChartInstance) {
-                activityChartInstance.resize();
-                activityChartInstance.update('none'); // Huling redraw para walang visual lag
+            if (window.activityChartInstance) {
+                window.activityChartInstance.resize();
+                window.activityChartInstance.update('none');
             }
         });
         lineGraphObserver.observe(chartWrapper);
     }
 
-    function getChartDatasetScope(scope) {
-        const source = timelineRepository[scope];
-        return {
-            labels: source.labels,
-            datasets: [
-                { label: 'Adds / Uploads', data: source.adds, borderColor: '#2563eb', backgroundColor: 'rgba(37, 99, 235, 0.04)', borderWidth: 3, tension: 0.3, fill: true },
-                { label: 'Edits', data: source.edits, borderColor: '#06b6d4', backgroundColor: 'transparent', borderWidth: 2.5, tension: 0.25 },
-                { label: 'Deletes', data: source.deletes, borderColor: '#ef4444', backgroundColor: 'transparent', borderWidth: 2, borderDash: [4, 4], tension: 0.1 },
-                { label: 'Checkouts', data: source.checkouts, borderColor: '#f59e0b', backgroundColor: 'transparent', borderWidth: 2.5, tension: 0.3 },
-                { label: 'Shares', data: source.shares, borderColor: '#10b981', backgroundColor: 'transparent', borderWidth: 2, borderDash: [6, 2], tension: 0.2 }
-            ]
-        };
+    // Dropdown Change Listener (Bound safely to the global scope helper definition)
+    const scopeSelector = document.getElementById('timelineScopeSelector');
+    if (scopeSelector) {
+        scopeSelector.addEventListener('change', (e) => {
+            if (window.activityChartInstance) {
+                window.activityChartInstance.data = getChartDatasetScope(e.target.value);
+                window.activityChartInstance.update();
+            }
+        });
     }
-
-    document.getElementById('timelineScopeSelector').addEventListener('change', (e) => {
-        activityChartInstance.data = getChartDatasetScope(e.target.value);
-        activityChartInstance.update();
+    
+    window.addEventListener('resize', () => {
+        if (window.activityChartInstance) window.activityChartInstance.resize();
     });
-    window.addEventListener('resize', () => activityChartInstance.resize());
 });
 
-
+// ── 4. REAL-TIME SYNCHRONIZED SERVER CLOCK ────────────────────────────
 function startLiveClock() {
     const clockElement = document.getElementById('live-server-clock');
     if (!clockElement) return;
 
-    // 1. Grab the initial time from the server so the clocks align perfectly
     let currentTime = new Date();
-
     setInterval(() => {
-        // 2. Increment the clock by exactly 1 second
         currentTime.setSeconds(currentTime.getSeconds() + 1);
-
-        // 3. Format the hours, minutes, and AM/PM strings
         let hours = currentTime.getHours();
         let minutes = currentTime.getMinutes();
         const ampm = hours >= 12 ? 'PM' : 'AM';
-
         hours = hours % 12;
-        hours = hours ? hours : 12; // Handle midnights (0 hours becomes 12)
-        minutes = minutes < 10 ? '0' + minutes : minutes; // Add leading zeros
-
-        // 4. Print it dynamically to the screen
+        hours = hours ? hours : 12;
+        minutes = minutes < 10 ? '0' + minutes : minutes;
         clockElement.textContent = `${hours}:${minutes} ${ampm}`;
     }, 1000);
 }
-
-// Fire the interval manager immediately when the page finishes rendering
 document.addEventListener('DOMContentLoaded', startLiveClock);
 
+// ── 5. ASYNC BACKGROUND UPLOADER (NO ALERTS, INLINE TOASTS) ───────────
+document.addEventListener('DOMContentLoaded', function() {
+    const uploadForm = document.getElementById('adminUploadForm');
+    if (!uploadForm) return;
+
+    // Checks for/or creates an inline status panel directly above form action buttons
+    let statusMsg = document.getElementById('uploadStatusMessage');
+    if (!statusMsg) {
+        statusMsg = document.createElement('div');
+        statusMsg.id = 'uploadStatusMessage';
+        statusMsg.style.cssText = 'margin-top: 1rem; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; display: none;';
+        uploadForm.insertBefore(statusMsg, uploadForm.lastElementChild);
+    }
+
+    uploadForm.addEventListener('submit', function(e) {
+        e.preventDefault(); 
+        
+        const submitBtn = document.getElementById('uploadSubmitBtn');
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Uploading...';
+        
+        statusMsg.style.display = 'none';
+
+        const formData = new FormData(this);
+
+        fetch('../api/upload.php', {
+            method: 'POST',
+            body: formData
+        })
+        .then(response => {
+            if (!response.ok) throw new Error('Network status code failure');
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                // Success banner placement
+                statusMsg.style.cssText = 'margin-top: 1rem; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; background: #d1fae5; color: #065f46; display: block;';
+                statusMsg.textContent = 'Success! Updating admin metrics...';
+                
+                // Soft refresh window to draw updated dashboard metrics cleanly
+                setTimeout(() => { window.location.reload(); }, 800);
+            } else {
+                // Application-level error handling configuration
+                statusMsg.style.cssText = 'margin-top: 1rem; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; background: #fee2e2; color: #991b1b; display: block;';
+                statusMsg.textContent = 'Upload Blocked: ' + (data.message || 'Server processed request with rejection.');
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Upload';
+            }
+        })
+        .catch(error => {
+            console.error('Upload Process Fault:', error);
+            // System connection error banner styling
+            statusMsg.style.cssText = 'margin-top: 1rem; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 600; background: #fee2e2; color: #991b1b; display: block;';
+            statusMsg.textContent = 'Connection error. Please check destination paths and verify the api directory routing.';
+            submitBtn.disabled = false;
+            submitBtn.textContent = 'Upload';
+        });
+    });
+});
 </script>
 
 <?php 

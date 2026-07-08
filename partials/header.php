@@ -118,19 +118,35 @@ $is_dashboard_active = in_array($current_file, ['dashboard.php', 'admin_dashboar
                         <?php if ($unreadCount > 0): ?><span class="notif-badge"><?= $unreadCount ?></span><?php endif; ?>
                     </button>
                     <div id="notif-panel" class="notif-panel">
-                        <div class="notif-header">Notifications</div>
+                        <div class="notif-header">
+                            <span>Notifications</span>
+                            <?php if ($unreadCount > 0): ?>
+                                <span class="notif-count-pill"><?= $unreadCount ?> unread</span>
+                            <?php endif; ?>
+                        </div>
                         <?php if (empty($notifications)): ?>
-                            <div class="notif-empty">No new notifications</div>
+                            <div class="notif-empty">
+                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:6px;opacity:.4"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                                <span>No new notifications</span>
+                            </div>
                         <?php else: ?>
-                            <?php foreach ($notifications as $n): ?>
-                                <a href="<?= htmlspecialchars($n['link'] ?? '#') ?>" class="notif-item">
-                                    <strong><?= htmlspecialchars($n['type']) ?></strong>
-                                    <span><?= htmlspecialchars($n['message']) ?></span>
-                                    <small><?= htmlspecialchars(substr($n['created_at'], 0, 16)) ?></small>
+                            <?php foreach ($notifications as $n):
+                                $link = $n['link'] ?? '';
+                                $hasLink = $link && $link !== '#';
+                            ?>
+                                <a href="<?= $hasLink ? htmlspecialchars($link) : '#' ?>"
+                                   class="notif-item notif-unread"
+                                   onclick="markNotifRead(<?= (int)$n['id'] ?>)<?= !$hasLink ? '; return false;' : '' ?>">
+                                    <div class="notif-item-dot"></div>
+                                    <div class="notif-item-body">
+                                        <strong class="notif-type-label"><?= htmlspecialchars($n['type']) ?></strong>
+                                        <span class="notif-msg"><?= htmlspecialchars($n['message']) ?></span>
+                                        <small class="notif-time"><?= htmlspecialchars(substr($n['created_at'], 0, 16)) ?></small>
+                                    </div>
                                 </a>
                             <?php endforeach; ?>
                         <?php endif; ?>
-                        <a href="<?= app_url('api/notifications.php?action=mark_all') ?>" class="notif-mark-all">Mark all read</a>
+                        <button type="button" id="notif-mark-all-btn" class="notif-mark-all">Mark all as read</button>
                     </div>
                 </div>
             </div>

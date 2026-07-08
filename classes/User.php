@@ -42,7 +42,7 @@ class User {
     }
 
     public function getPermissions(int $userId): array {
-        $defaults = ['can_add' => 1, 'can_download' => 1, 'can_share' => 1, 'can_delete' => 0, 'can_edit' => 0, 'can_checkout' => 0];
+        $defaults = ['can_add' => 1, 'can_download' => 1, 'can_share' => 1, 'can_delete' => 1, 'can_edit' => 1, 'can_checkout' => 1];
         $stmt = $this->db->prepare('SELECT * FROM user_permissions WHERE user_id=?');
         $stmt->bind_param('i', $userId);
         $stmt->execute();
