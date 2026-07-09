@@ -163,10 +163,11 @@ if ($current_folder_id > 0) {
             "SELECT COUNT(DISTINCT d.id)
              FROM documents d
              LEFT JOIN document_shares ds ON ds.document_id = d.id AND ds.shared_with_user_id = ?
+             LEFT JOIN folder_shares fsh ON fsh.folder_id = d.folder_id AND fsh.shared_with_user_id = ?
              WHERE d.folder_id = ? AND d.is_deleted = 0
-               AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL)"
+               AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL OR fsh.shared_with_user_id IS NOT NULL)"
         );
-        $files_count_stmt->bind_param('iii', $user['id'], $current_folder_id, $user['id']);
+        $files_count_stmt->bind_param('iiii', $user['id'], $user['id'], $current_folder_id, $user['id']);
         $files_count_stmt->execute();
         $folder_files_total = (int)$files_count_stmt->get_result()->fetch_row()[0];
 
@@ -174,14 +175,15 @@ if ($current_folder_id > 0) {
             "SELECT d.*, u.username AS uploader_name, ur.role AS uploader_role, lk.username AS locker_name
              FROM documents d
              LEFT JOIN document_shares ds ON ds.document_id = d.id AND ds.shared_with_user_id = ?
+             LEFT JOIN folder_shares fsh ON fsh.folder_id = d.folder_id AND fsh.shared_with_user_id = ?
              LEFT JOIN users u  ON u.id = d.uploaded_by
              LEFT JOIN users ur ON ur.id = d.uploaded_by
              LEFT JOIN users lk ON lk.id = d.locked_by
              WHERE d.folder_id = ? AND d.is_deleted = 0
-               AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL)
+               AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL OR fsh.shared_with_user_id IS NOT NULL)
              ORDER BY d.filename ASC LIMIT ? OFFSET ?"
         );
-        $files_stmt->bind_param('iiiii', $user['id'], $current_folder_id, $user['id'], $limit, $offset);
+        $files_stmt->bind_param('iiiiii', $user['id'], $user['id'], $current_folder_id, $user['id'], $limit, $offset);
         $files_stmt->execute();
         $folder_files = $files_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
@@ -271,20 +273,30 @@ include __DIR__ . '/../partials/header.php';
 
 <?php if (!$current_folder): ?>
 <!-- FOLDER PROVISIONING CONTAINER INTERFACE BLOCK -->
-<?php if ($role !== 'casual'): ?>
-<div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 8px; margin-bottom: 25px;">
-    <h3 style="margin: 0 0 12px 0; font-size: 13px; color: #475569; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Create New Folder</h3>
+<?php if ($role !== 'casual' && !empty($userPerms['can_add'])): ?>
+<div style="margin-bottom:18px;">
+  <button type="button" class="btn btn-primary" onclick="DMS.openModal('createFolderModal')">Create Folder</button>
+</div>
+<div id="createFolderModal" class="modal-overlay">
+  <div class="modal-card">
+    <button class="modal-close" onclick="DMS.closeModal('createFolderModal')" aria-label="Close">&times;</button>
+    <h3>Create New Folder</h3>
     <form method="POST" action="<?= page_url('folders.php') ?>" style="display: flex; flex-direction: column; gap: 12px; margin: 0;">
         <input type="hidden" name="form_action" value="create_folder">
-        <div style="display: flex; gap: 10px;">
-            <input type="text" name="foldername" placeholder="Enter folder name..." required style="flex: 1; padding: 10px; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 14px;">
-            <button type="submit" class="btn btn-primary" style="padding: 10px 20px; font-weight: bold;">Create Folder</button>
+        <div class="form-group">
+            <label>Folder name</label>
+            <input type="text" name="foldername" placeholder="Enter folder name..." required>
         </div>
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 13px; color: #334155; max-width: max-content; user-select: none;">
-            <input type="checkbox" name="is_private" value="1" style="width: 16px; height: 16px; cursor: pointer;">
-            <strong>Make as Private</strong> (Only you and assigned users can view this)
+        <label class="privacy-check">
+            <input type="checkbox" name="is_private" value="1">
+            <strong>Private folder</strong><span>Only you and assigned users can view this.</span>
         </label>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-outline" onclick="DMS.closeModal('createFolderModal')">Cancel</button>
+          <button type="submit" class="btn btn-primary">Create Folder</button>
+        </div>
     </form>
+  </div>
 </div>
 <?php endif; ?>
 
@@ -314,11 +326,31 @@ include __DIR__ . '/../partials/header.php';
       <?php if (empty($private_folders)): ?>
         <p style="color:#aaa; font-style:italic; font-size:13px; margin-left: 5px;">No private folders.</p>
       <?php else: ?>
+        <?php 
+          // Get file counts for private folders
+          $folder_file_counts = [];
+          foreach ($private_folders as $f) {
+              $count_stmt = $db->prepare(
+                  "SELECT COUNT(DISTINCT d.id) as cnt FROM documents d 
+                   LEFT JOIN document_shares ds ON ds.document_id = d.id AND ds.shared_with_user_id = ?
+                   WHERE d.folder_id = ? AND d.is_deleted = 0
+                   AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL)"
+              );
+              $count_stmt->bind_param('iii', $user['id'], $f['id'], $user['id']);
+              $count_stmt->execute();
+              $folder_file_counts[$f['id']] = (int)$count_stmt->get_result()->fetch_row()[0];
+          }
+        ?>
         <?php foreach ($private_folders as $f): ?>
           <div class="folder-item-node <?= ($current_folder_id === (int)$f['id']) ? 'active-folder-style' : '' ?>">
-            <a href="<?= page_url('folders.php?id=' . (int)$f['id']) ?>" class="folder-node-meta-title" style="text-decoration:none; color:inherit; flex:1;">
-              <span>📁</span> <?= htmlspecialchars($f['name']) ?>
-            </a>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+              <a href="<?= page_url('folders.php?id=' . (int)$f['id']) ?>" class="folder-node-meta-title" style="text-decoration:none; color:inherit;">
+                <span>📁</span> <?= htmlspecialchars($f['name']) ?>
+              </a>
+              <span style="font-size: 11px; color: #666; font-weight: normal;">
+                <?= $folder_file_counts[$f['id']] ?> file<?= $folder_file_counts[$f['id']] !== 1 ? 's' : '' ?>
+              </span>
+            </div>
             
             <div style="display:flex; gap:6px; align-items:center;">
               <?php if (!empty($userPerms['can_edit']) && ($role === 'admin' || $f['created_by'] == $user['id'])): ?>
@@ -343,11 +375,31 @@ include __DIR__ . '/../partials/header.php';
       <?php if (empty($public_folders)): ?>
         <p style="color:#aaa; font-style:italic; font-size:13px; margin-left: 5px;">No public folders yet.</p>
       <?php else: ?>
+        <?php 
+          // Get file counts for public folders
+          $public_file_counts = [];
+          foreach ($public_folders as $f) {
+              $count_stmt = $db->prepare(
+                  "SELECT COUNT(DISTINCT d.id) as cnt FROM documents d 
+                   LEFT JOIN document_shares ds ON ds.document_id = d.id AND ds.shared_with_user_id = ?
+                   WHERE d.folder_id = ? AND d.is_deleted = 0
+                   AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL)"
+              );
+              $count_stmt->bind_param('iii', $user['id'], $f['id'], $user['id']);
+              $count_stmt->execute();
+              $public_file_counts[$f['id']] = (int)$count_stmt->get_result()->fetch_row()[0];
+          }
+        ?>
         <?php foreach ($public_folders as $f): ?>
           <div class="folder-item-node <?= ($current_folder_id === (int)$f['id']) ? 'active-folder-style' : '' ?>">
-            <a href="<?= page_url('folders.php?id=' . (int)$f['id']) ?>" class="folder-node-meta-title" style="text-decoration:none; color:inherit; flex:1;">
-              <span>📁</span> <?= htmlspecialchars($f['name']) ?>
-            </a>
+            <div style="flex: 1; display: flex; flex-direction: column; gap: 4px;">
+              <a href="<?= page_url('folders.php?id=' . (int)$f['id']) ?>" class="folder-node-meta-title" style="text-decoration:none; color:inherit;">
+                <span>📁</span> <?= htmlspecialchars($f['name']) ?>
+              </a>
+              <span style="font-size: 11px; color: #666; font-weight: normal;">
+                <?= $public_file_counts[$f['id']] ?> file<?= $public_file_counts[$f['id']] !== 1 ? 's' : '' ?>
+              </span>
+            </div>
             
             <div style="display:flex; gap:6px; align-items:center;">
               <?php if (!empty($userPerms['can_edit']) && ($role === 'admin' || $f['created_by'] == $user['id'])): ?>
@@ -384,9 +436,28 @@ include __DIR__ . '/../partials/header.php';
   <?php if ($current_folder): ?>
     <div class="card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-        <h3>Files Inside: <span style="color:#007bff;"><?= htmlspecialchars($current_folder['name']) ?></span></h3>
+        <div>
+          <h3>Files Inside: <span style="color:#007bff;"><?= htmlspecialchars($current_folder['name']) ?></span></h3>
+          <div style="font-size: 13px; color: #666; margin-top: 5px;">
+            <?= $folder_files_total ?> file<?= $folder_files_total !== 1 ? 's' : '' ?> 
+            <span style="margin: 0 5px;">•</span>
+            <span id="folder-total-size">calculating size...</span>
+          </div>
+        </div>
         <a href="<?= page_url('folders.php?id=0') ?>" class="btn btn-outline">&larr; Back to Folders</a>
       </div>
+
+      <script>
+        // Fetch folder statistics
+        fetch('<?= app_url('api/folder_stats.php') ?>?folder_id=<?= $current_folder_id ?>&action=summary')
+          .then(r => r.json())
+          .then(d => {
+            if (d.success) {
+              document.getElementById('folder-total-size').textContent = d.total_size_formatted;
+            }
+          })
+          .catch(e => console.error('[v0] Folder stats fetch error:', e));
+      </script>
 
       <?php if (!empty($child_folders)): ?>
         <div class="folder-section-title">Folders Inside</div>
@@ -541,17 +612,17 @@ include __DIR__ . '/../partials/header.php';
             </select>
             
             <label style="font-size: 12px; color: #0284c7; font-weight: bold; cursor: pointer; user-select: none;">
-                <input type="checkbox" onclick="document.querySelectorAll('.f-perm-cb').forEach(cb => cb.checked = this.checked)" style="cursor: pointer;"> Select All
+                <input type="checkbox" id="fp_all" checked onclick="document.querySelectorAll('.f-perm-cb').forEach(cb => cb.checked = this.checked)" style="cursor: pointer;"> Select all
             </label>
         </div>
 
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; padding: 5px 0; border-top: 1px dashed #e2e8f0; padding-top: 10px;">
-            <label style="font-size: 12px; color: #334155; display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="f-perm-cb" id="fp_add" value="1" style="width: 15px; height: 15px;"> Allow Add Files</label>
-            <label style="font-size: 12px; color: #334155; display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="f-perm-cb" id="fp_edit" value="1" style="width: 15px; height: 15px;"> Allow Edit Details</label>
-            <label style="font-size: 12px; color: #334155; display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="f-perm-cb" id="fp_delete" value="1" style="width: 15px; height: 15px;"> Allow Delete Items</label>
-            <label style="font-size: 12px; color: #334155; display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="f-perm-cb" id="fp_checkout" value="1" style="width: 15px; height: 15px;"> Allow Checkin/Out</label>
+        <div class="perm-grid" style="border-top: 1px dashed #e2e8f0; padding-top: 10px;">
+            <label><input type="checkbox" class="f-perm-cb" id="fp_add" value="1" checked> Add</label>
+            <label><input type="checkbox" class="f-perm-cb" id="fp_edit" value="1" checked> Edit</label>
+            <label><input type="checkbox" class="f-perm-cb" id="fp_delete" value="1" checked> Delete</label>
+            <label><input type="checkbox" class="f-perm-cb" id="fp_checkout" value="1" checked> Lock/Unlock</label>
             <label style="font-size: 12px; color: #334155; display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="f-perm-cb" id="fp_download" value="1" checked style="width: 15px; height: 15px;"> Allow Download</label>
-            <label style="font-size: 12px; color: #334155; display: flex; align-items: center; gap: 6px; cursor: pointer;"><input type="checkbox" class="f-perm-cb" id="fp_share" value="1" style="width: 15px; height: 15px;"> Allow Sub-Sharing</label>
+            <label><input type="checkbox" class="f-perm-cb" id="fp_share" value="1" checked> Share</label>
         </div>
 
         <button type="button" class="btn btn-primary" style="padding: 10px; font-weight: bold; font-size: 13px;" onclick="submitFolderAccessScope()">Map Collaborator Permissions</button>
@@ -692,7 +763,8 @@ function closeFolderAccessModal() {
     document.body.style.overflow = '';
     activeFolderId = null;
     document.getElementById('f_collab_picker').value = '';
-    document.querySelectorAll('.f-perm-cb').forEach(cb => cb.checked = cb.id === 'fp_download');
+    document.getElementById('fp_all').checked = true;
+    document.querySelectorAll('.f-perm-cb').forEach(cb => cb.checked = true);
 }
 
 function refreshFolderAccessList() {

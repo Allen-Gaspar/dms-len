@@ -2,15 +2,18 @@
 require_once __DIR__ . '/../core/auth.php';
 $user = require_login();
 $db   = get_db();
+$role = $user['role'] ?? '';
 $perms = (new User())->getPermissions((int)$user['id']);
-if (empty($perms['can_download'])) {
-    http_response_code(403);
-    die('Download access denied.');
-}
 
 $id = (int)($_GET['id'] ?? 0);
 $versionId = (int)($_GET['version_id'] ?? 0);
 $preview = !empty($_GET['preview']);
+
+// FIXED: Admin has total override access. Restrictions apply only to non-admins when they aren't previewing.
+if ($role !== 'admin' && empty($perms['can_download']) && !$preview) {
+    http_response_code(403);
+    die('Download access denied.');
+}
 
 if ($id <= 0) { http_response_code(400); die('Invalid document ID.'); }
 
@@ -21,16 +24,8 @@ $doc = $stmt->get_result()->fetch_assoc();
 
 if (!$doc) { http_response_code(404); die('Document not found.'); }
 
-if ((int)($doc['is_private'] ?? 0) === 1 && (int)$doc['uploaded_by'] !== (int)$user['id']) {
-    $chk = $db->prepare('SELECT id FROM document_shares WHERE document_id=? AND shared_with_user_id=? LIMIT 1');
-    $chk->bind_param('ii', $id, $user['id']);
-    $chk->execute();
-    if (!$chk->get_result()->fetch_assoc()) { http_response_code(403); die('Access denied.'); }
-} elseif ($user['role'] === 'casual') {
-    $chk = $db->prepare('SELECT id FROM document_shares WHERE document_id=? AND shared_with_user_id=? LIMIT 1');
-    $chk->bind_param('ii', $id, $user['id']);
-    $chk->execute();
-    if (!$chk->get_result()->fetch_assoc()) { http_response_code(403); die('Access denied.'); }
+if (!AccessControl::canViewDocument($db, $user, $id)) {
+    http_response_code(403); die('Access denied.');
 }
 
 $storagePath = $doc['storage_path'];
@@ -49,9 +44,36 @@ if ($versionId > 0) {
 $file_path = UPLOAD_DIR . '/' . basename($storagePath);
 if (!file_exists($file_path)) { http_response_code(404); die('File not found.'); }
 
+$ext = strtolower(pathinfo($doc['filename'], PATHINFO_EXTENSION));
+
+// INTERCEPTOR: Disable preview pane only for PowerPoint files to prevent automatic download
+if ($preview && in_array($ext, ['ppt', 'pptx'], true)) {
+    while (ob_get_level()) ob_end_clean();
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body, html { margin: 0; padding: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: #ffffff; font-family: system-ui, sans-serif; }
+            .no-preview { text-align: center; color: #64748b; padding: 20px; }
+            .icon { font-size: 50px; margin-bottom: 10px; }
+        </style>
+    </head>
+    <body>
+        <div class="no-preview">
+            <div class="icon">📊</div>
+            <h3>No Preview Available</h3>
+            <p>PowerPoint presentations cannot be viewed inside the web preview pane.</p>
+        </div>
+    </body>
+    </html>
+    <?php
+    exit;
+}
+
 if (!$preview) audit_log($user['id'], 'DOWNLOAD', "Downloaded '{$displayName}'");
 
-$ext = strtolower(pathinfo($doc['filename'], PATHINFO_EXTENSION));
 $mimeMap = [
     'pdf'=>'application/pdf','png'=>'image/png','jpg'=>'image/jpeg','jpeg'=>'image/jpeg',
     'gif'=>'image/gif','webp'=>'image/webp','svg'=>'image/svg+xml','mp4'=>'video/mp4','webm'=>'video/webm','mov'=>'video/quicktime',
@@ -65,19 +87,16 @@ $filesize = filesize($file_path);
 
 while (ob_get_level()) ob_end_clean();
 
+// Force Content-Disposition to attachment when not explicit preview
 header('Content-Type: ' . $mime);
 header('Content-Length: ' . $filesize);
 header('Content-Disposition: ' . ($preview ? 'inline' : 'attachment') . '; filename="' . rawurlencode($displayName) . '"');
-header('X-DMS-Filename: ' . rawurlencode($displayName));
-header('Cache-Control: private, max-age=3600');
+header('Cache-Control: no-cache, must-revalidate');
+header('Pragma: public');
 
 $fp = fopen($file_path, 'rb');
 if ($fp) {
-    if (function_exists('flock')) flock($fp, LOCK_SH);
     fpassthru($fp);
-    if (function_exists('flock')) flock($fp, LOCK_UN);
     fclose($fp);
-} else {
-    readfile($file_path);
 }
 exit;

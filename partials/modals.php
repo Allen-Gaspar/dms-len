@@ -51,7 +51,15 @@ $folders = $db->query("SELECT id, name FROM folders WHERE (is_private=0 OR creat
 <div id="fileDetailModal" class="modal-overlay">
   <div class="modal-card modal-lg">
     <button class="modal-close" onclick="DMS.closeModal('fileDetailModal')" aria-label="Close">&times;</button>
-    <h3 id="fdTitle">File Details</h3>
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 20px;">
+      <h3 id="fdTitle" style="margin: 0; flex: 1; word-break: break-word;">File Details</h3>
+      <button type="button" class="btn btn-outline btn-sm" id="fdEditToggle" onclick="toggleFileDetailEdit()" style="display: none;">Edit</button>
+      <button type="button" class="btn btn-primary btn-sm" id="fdSaveBtn" onclick="saveFileDetailChanges()" style="display: none;">Save</button>
+      <button type="button" class="btn btn-outline btn-sm" id="fdCancelBtn" onclick="cancelFileDetailEdit()" style="display: none;">Cancel</button>
+    </div>
+    <div style="display: none; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 12px; margin-bottom: 15px; font-size: 13px; color: #dc2626;" id="fdEditHint">
+      Editing mode - changes will be saved only when you click Save.
+    </div>
     <div class="file-detail-grid">
       <div class="file-detail-preview" id="fdPreview">Loading...</div>
       <div class="file-detail-info" id="fdInfo"></div>

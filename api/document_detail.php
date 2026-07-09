@@ -62,23 +62,10 @@ if (!$doc) {
     exit;
 }
 
-// Access check for private
-if ((int)$doc['is_private'] === 1 && (int)$doc['uploaded_by'] !== (int)$user['id']) {
-    $chk = $db->prepare('SELECT id FROM document_shares WHERE document_id=? AND shared_with_user_id=?');
-    $chk->bind_param('ii', $id, $user['id']);
-    $chk->execute();
-    if (!$chk->get_result()->fetch_assoc()) {
-        echo json_encode(['success' => false, 'message' => 'Access denied']);
-        exit;
-    }
-} elseif ($user['role'] === 'casual') {
-    $chk = $db->prepare('SELECT id FROM document_shares WHERE document_id=? AND shared_with_user_id=?');
-    $chk->bind_param('ii', $id, $user['id']);
-    $chk->execute();
-    if (!$chk->get_result()->fetch_assoc()) {
-        echo json_encode(['success' => false, 'message' => 'Access denied']);
-        exit;
-    }
+// Use unified access control
+if (!AccessControl::canViewDocument($db, $user, $id)) {
+    echo json_encode(['success' => false, 'message' => 'Access denied']);
+    exit;
 }
 
 $ext = strtolower(pathinfo($doc['filename'], PATHINFO_EXTENSION));
@@ -105,4 +92,6 @@ echo json_encode([
     'can_preview' => $canPreview,
     'versions' => $versions,
     'is_admin' => $user['role'] === 'admin',
+    'can_edit' => AccessControl::canEditDocument($db, $user, $id) && !empty((new User())->getPermissions((int)$user['id'])['can_edit']),
+    'can_delete' => AccessControl::canDeleteDocument($db, $user, $id) && !empty((new User())->getPermissions((int)$user['id'])['can_delete']),
 ]);

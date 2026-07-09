@@ -184,7 +184,6 @@ include __DIR__ . '/../partials/header.php';
       </td>
       <td>
         <div class="actions-container">
-          <!-- 1. Master Edit Button (Visible based on permission bypass hierarchy matrix rules) -->
           <?php if ($can_write && !empty($userPerms['can_edit'])): ?>
             <button type="button" class="btn-icon-sm btn-primary" title="Edit File Details" onclick="openMasterEditModal(<?= htmlspecialchars(json_encode($doc)) ?>)">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -194,8 +193,7 @@ include __DIR__ . '/../partials/header.php';
             </button>
           <?php endif; ?>
 
-          <!-- Share Modal Trigger -->
-          <?php if (!empty($userPerms['can_share'])): ?>
+<?php if (!empty($userPerms['can_share'])): ?>
           <button type="button" class="btn-icon-sm" style="background:#6366f1;color:white;border:none;" title="Share" onclick="openShareModal(<?= (int)$doc['id'] ?>, '<?= htmlspecialchars(addslashes($doc['filename'])) ?>')">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"></path>
@@ -205,10 +203,9 @@ include __DIR__ . '/../partials/header.php';
           </button>
           <?php endif; ?>
 
-          <!-- Download with confirmation -->
-          <?php if (!empty($userPerms['can_download'])): ?>
-          <button type="button" class="btn-icon-sm btn-outline" title="Download" onclick="DMS.confirm('Download','Choose where to save <?= htmlspecialchars(addslashes($doc['filename'])) ?>?', ()=>DMS.downloadFile(<?= (int)$doc['id'] ?>, '<?= htmlspecialchars(addslashes($doc['filename'])) ?>'))">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+<?php if ($role === 'admin' || !empty($userPerms['can_download'])): ?>
+          <button type="button" class="btn-icon-sm" style="background: transparent; border: 1px solid #cbd5e1; color: #475569; display: inline-flex; align-items: center; justify-content: center; cursor: pointer;" title="Download" onclick="triggerNativeDownload('<?= app_url('api/download.php?id=' . (int)$doc['id']) ?>')">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="width: 14px; height: 14px;">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
               <polyline points="7 10 12 15 17 10"></polyline>
               <line x1="12" y1="15" x2="12" y2="3"></line>
@@ -276,13 +273,13 @@ include __DIR__ . '/../partials/header.php';
       </div>
     </div>
     <div class="perm-grid">
-      <label><input type="checkbox" id="sh_all" onchange="toggleShareAll(this)" checked> Select all</label>
-      <label><input type="checkbox" id="sh_add" checked> Add</label>
-      <label><input type="checkbox" id="sh_edit" checked> Edit</label>
-      <label><input type="checkbox" id="sh_delete" checked> Delete</label>
+      <label><input type="checkbox" id="sh_all" onchange="toggleShareAll(this)"> Select all</label>
+      <label><input type="checkbox" id="sh_add"> Add</label>
+      <label><input type="checkbox" id="sh_edit"> Edit</label>
+      <label><input type="checkbox" id="sh_delete"> Delete</label>
       <label><input type="checkbox" id="sh_download" checked> Download</label>
-      <label><input type="checkbox" id="sh_checkout" checked> Lock/Unlock</label>
-      <label><input type="checkbox" id="sh_share" checked> Share</label>
+      <label><input type="checkbox" id="sh_checkout"> Lock/Unlock</label>
+      <label><input type="checkbox" id="sh_share"> Share</label>
     </div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="DMS.closeModal('shareModal')">Cancel</button>
@@ -296,13 +293,13 @@ function openShareModal(id, name) {
   document.getElementById('shareDocId').value = id;
   document.getElementById('shareDocName').textContent = name;
   document.getElementById('shareUserEmail').value = '';
-  document.getElementById('sh_all').checked = true;
-  document.getElementById('sh_add').checked = true;
+  document.getElementById('sh_all').checked = false;
+  document.getElementById('sh_add').checked = false;
   document.getElementById('sh_download').checked = true;
-  document.getElementById('sh_edit').checked = true;
-  document.getElementById('sh_delete').checked = true;
-  document.getElementById('sh_checkout').checked = true;
-  document.getElementById('sh_share').checked = true;
+  document.getElementById('sh_edit').checked = false;
+  document.getElementById('sh_delete').checked = false;
+  document.getElementById('sh_checkout').checked = false;
+  document.getElementById('sh_share').checked = false;
   DMS.openModal('shareModal');
 }
 function toggleShareAll(master) {
@@ -481,7 +478,11 @@ function openMasterEditModal(doc) {
     // Render current active layout file graphic context preview window
     const oldPane = document.getElementById('p_old');
     const ext = doc.filename.split('.').pop().toLowerCase();
-    oldPane.innerHTML = renderPreview(`<?= app_url('api/download.php') ?>?id=${doc.id}&preview=1`, ext, doc.filename);
+    if (['png','jpg','jpeg','gif','webp','svg'].includes(ext)) {
+        oldPane.innerHTML = `<img src="<?= app_url('uploads/') ?>${doc.storage_path}" style="max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 4px;">`;
+    } else {
+        oldPane.innerHTML = `<div style="text-align: center;"><span style="font-size: 36px; display: block; margin-bottom: 4px;">📄</span><small style="color: #64748b; font-weight: bold;">${ext.toUpperCase()} Object Preview Restrained</small></div>`;
+    }
 
     // Populate Version History logs checklist
     const historyList = document.getElementById('m_history_list');
@@ -590,7 +591,39 @@ window.addEventListener('click', function(e) {
     const modal = document.getElementById('masterEditModal');
     if (e.target === modal) { closeMasterEditModal(); }
 });
+
+function triggerNativeDownload(downloadUrl) {
+    // 1. Activate your global layout loading animation spinner panel
+    if (typeof showLoader === 'function') {
+        showLoader();
+    } else if (typeof DMS !== 'undefined' && typeof DMS.showLoader === 'function') {
+        DMS.showLoader();
+    } else {
+        const loader = document.getElementById('loadingSpinner') || document.querySelector('.loader-wrapper');
+        if (loader) loader.style.display = 'flex';
+    }
+
+    // 2. Point the hidden background frame to the stream source path 
+    const iframe = document.getElementById('hiddenDownloadFrame');
+    if (iframe) {
+        iframe.src = downloadUrl;
+    }
+
+    // 3. Keep the loading animation visible briefly, then close it once hand-off occurs
+    setTimeout(() => {
+        if (typeof hideLoader === 'function') {
+            hideLoader();
+        } else if (typeof DMS !== 'undefined' && typeof DMS.hideLoader === 'function') {
+            DMS.hideLoader();
+        } else {
+            const loader = document.getElementById('loadingSpinner') || document.querySelector('.loader-wrapper');
+            if (loader) loader.style.display = 'none';
+        }
+    }, 2000); // 2000ms = 2 seconds loading duration animation screen
+}
 </script>
+
+<iframe id="hiddenDownloadFrame" style="display:none;"></iframe>
 
 <?php 
 include __DIR__ . '/../partials/footer.php';

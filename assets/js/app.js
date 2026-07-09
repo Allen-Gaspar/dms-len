@@ -151,12 +151,18 @@ const DMS = {
                 preview.innerHTML = renderPreview(data.preview_url, data.ext, doc.filename);
                 info.innerHTML = `
                     <dl class="file-meta-list">
+                        <dt>Filename</dt><dd>${escapeHtml(doc.filename || '-')}</dd>
+                        <dt>Type</dt><dd>${escapeHtml((data.ext || 'file').toUpperCase())}</dd>
                         <dt>Version</dt><dd>v${doc.version || 1}</dd>
+                        <dt>Size</dt><dd>${formatBytes(Number(doc.size || 0))}</dd>
                         <dt>Uploaded By</dt><dd>${escapeHtml(doc.uploader_name || '-')}</dd>
                         <dt>Status</dt><dd>${doc.is_locked == 1 ? 'Locked' : 'Available'}</dd>
                         <dt>Created</dt><dd>${escapeHtml((doc.created_at || '').slice(0, 16))}</dd>
                     </dl>`;
-                actions.innerHTML = `<a class="btn btn-primary" href="${data.download_url}">Download</a>`;
+                const safeNameArg = JSON.stringify(doc.filename || '').replace(/"/g, '&quot;');
+                actions.innerHTML = `
+                    ${data.can_edit ? `<button type="button" class="btn btn-outline" onclick="DMS.renameFile(${doc.id}, ${safeNameArg})">Rename</button>` : ''}
+                    <button type="button" class="btn btn-primary" onclick="DMS.downloadFile(${doc.id}, ${safeNameArg || '&quot;download&quot;'})">Download</button>`;
 
                 if (data.versions && data.versions.length) {
                     versions.innerHTML = `
@@ -193,6 +199,13 @@ function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, ch => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
     }[ch]));
+}
+
+function formatBytes(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+    if (bytes >= 1048576) return (bytes / 1048576).toFixed(1).replace(/\.0$/, '') + ' MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(1).replace(/\.0$/, '') + ' KB';
+    return bytes + ' B';
 }
 
 function renderPreview(url, ext, filename) {

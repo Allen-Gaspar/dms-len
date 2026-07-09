@@ -55,6 +55,16 @@ switch ($action) {
     case 'get_shares':
         $folder_id = (int)($_GET['folder_id'] ?? 0);
         
+        if ($folder_id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Invalid folder ID.']);
+            exit;
+        }
+
+        if (!AccessControl::canManageFolder($db, $user, $folder_id)) {
+            echo json_encode(['success' => false, 'message' => 'You can only view shares for folders you own.']);
+            exit;
+        }
+        
         $stmt = $db->prepare(
             'SELECT fs.*, u.username, u.role 
              FROM folder_shares fs
@@ -66,7 +76,7 @@ switch ($action) {
         $stmt->execute();
         $shares = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         
-        echo json_encode($shares);
+        echo json_encode(['success' => true, 'data' => $shares]);
         exit;
 
     case 'grant_access':
@@ -97,6 +107,7 @@ switch ($action) {
 
         $perms = compact('can_add', 'can_edit', 'can_delete', 'can_checkout', 'can_download', 'can_share');
         if (upsert_folder_share($db, $folder_id, $shared_with_user_id, $perms)) {
+            audit_log($user['id'], 'FOLDER_SHARE', "Granted folder access: folder_id={$folder_id}, user_id={$shared_with_user_id}");
             echo json_encode(['success' => true]);
         } else {
             echo json_encode(['success' => false, 'message' => 'Database write error.']);
@@ -149,28 +160,60 @@ switch ($action) {
         }
 
         $ok = true;
+        $count = 0;
         foreach ($targets as $targetId) {
             if ($targetId !== (int)$user['id']) {
-                $ok = upsert_folder_share($db, $folder_id, $targetId, $perms) && $ok;
+                if (upsert_folder_share($db, $folder_id, $targetId, $perms)) {
+                    $count++;
+                } else {
+                    $ok = false;
+                }
             }
+        }
+        if ($count > 0) {
+            audit_log($user['id'], 'FOLDER_SHARE_BATCH', "Granted folder access to {$count} users: folder_id={$folder_id}");
         }
         echo json_encode(['success' => $ok, 'message' => $ok ? 'Folder access updated.' : 'Some shares could not be saved.']);
         exit;
 
     case 'revoke_access':
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-            echo json_encode(['success' => false, 'message' => 'Invalid Request Method Framework layer.']);
+            echo json_encode(['success' => false, 'message' => 'Invalid request method.']);
             exit;
         }
 
         $share_id = (int)($_GET['share_id'] ?? 0);
+        
+        if ($share_id <= 0) {
+            echo json_encode(['success' => false, 'message' => 'Invalid share ID.']);
+            exit;
+        }
+
+        // Get share details before deletion for audit log
+        $check = $db->prepare('SELECT folder_id, shared_with_user_id FROM folder_shares WHERE id = ?');
+        $check->bind_param('i', $share_id);
+        $check->execute();
+        $share = $check->get_result()->fetch_assoc();
+
+        if (!$share) {
+            echo json_encode(['success' => false, 'message' => 'Share not found.']);
+            exit;
+        }
+
+        // Verify user can revoke (must own the folder)
+        if (!AccessControl::canManageFolder($db, $user, (int)$share['folder_id'])) {
+            echo json_encode(['success' => false, 'message' => 'You can only revoke shares for folders you own.']);
+            exit;
+        }
+
         $stmt = $db->prepare('DELETE FROM folder_shares WHERE id = ?');
         $stmt->bind_param('i', $share_id);
         
         if ($stmt->execute()) {
+            audit_log($user['id'], 'FOLDER_SHARE_REVOKE', "Revoked folder access: share_id={$share_id}, user_id={$share['shared_with_user_id']}");
             echo json_encode(['success' => true]);
         } else {
-            echo json_encode(['success' => false, 'message' => 'Failed to drop access matrix context map reference row.']);
+            echo json_encode(['success' => false, 'message' => 'Failed to revoke access.']);
         }
         exit;
 

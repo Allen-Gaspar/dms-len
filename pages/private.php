@@ -195,6 +195,33 @@ include APP_ROOT . '/partials/header.php';
   </div>
 </div>
 
+<div id="folderShareModal" class="modal-overlay">
+  <div class="modal-card modal-lg">
+    <button class="modal-close" onclick="DMS.closeModal('folderShareModal')">&times;</button>
+    <h3>Share Folder</h3>
+    <p id="folderShareName"></p>
+    <input type="hidden" id="folderShareId">
+    <label class="privacy-check" style="margin-bottom:12px"><input type="checkbox" id="folderShareAllUsers" onchange="document.getElementById('folderShareEmail').disabled=this.checked"> <strong>Share with all active users</strong></label>
+    <div class="form-group">
+      <label>User email</label>
+      <input type="email" id="folderShareEmail" placeholder="name@example.com" autocomplete="off">
+    </div>
+    <div class="perm-grid">
+      <label><input type="checkbox" id="fs_all" checked onchange="toggleFolderShareAll(this)"> Select all</label>
+      <label><input type="checkbox" id="fs_add" checked> Add</label>
+      <label><input type="checkbox" id="fs_edit" checked> Edit</label>
+      <label><input type="checkbox" id="fs_delete" checked> Delete</label>
+      <label><input type="checkbox" id="fs_download" checked> Download</label>
+      <label><input type="checkbox" id="fs_checkout" checked> Lock/Unlock</label>
+      <label><input type="checkbox" id="fs_share" checked> Share</label>
+    </div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-outline" onclick="DMS.closeModal('folderShareModal')">Cancel</button>
+      <button type="button" class="btn btn-primary" onclick="submitFolderShare()">Share Folder</button>
+    </div>
+  </div>
+</div>
+
 <div id="masterEditModal" class="modal-overlay">
   <div class="modal-wrapper-card">
     <button type="button" class="modal-close" onclick="closeMasterEditModal()" aria-label="Close">&times;</button>
