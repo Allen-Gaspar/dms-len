@@ -39,6 +39,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'can_checkout' => isset($_POST['can_checkout']) ? 1 : 0,
                 ];
                 $userModel->setPermissions($newUserId, $perms, $adminId);
+                Mailer::send(
+                    $email,
+                    $uname,
+                    'FILESTAC DMS - Account Created',
+                    '<p>Hello ' . htmlspecialchars($uname) . ',</p>
+                     <p>Your FILESTAC DMS account has been created.</p>
+                     <p><strong>Username:</strong> ' . htmlspecialchars($uname) . '<br>
+                     <strong>Temporary password:</strong> ' . htmlspecialchars($pass) . '</p>
+                     <p>Please sign in and update your password from Settings.</p>',
+                    "Your FILESTAC DMS account has been created.\nUsername: {$uname}\nTemporary password: {$pass}\nPlease sign in and update your password from Settings."
+                );
                 audit_log($user['id'], 'USER_CREATE', "Created user '$uname'");
                 flash_redirect(page_url('users.php'), 'ok', "User '$uname' created.");
             } catch (Exception $e) {

@@ -1,6 +1,6 @@
 <?php
 require_once __DIR__ . '/../core/auth.php';
-$user = require_role('contributor', 'admin');
+$user = require_login();
 $db   = get_db();
 $perms = (new User())->getPermissions((int)$user['id']);
 if (empty($perms['can_delete'])) {
@@ -19,6 +19,13 @@ if (!$doc || $doc['is_deleted']) flash_redirect(page_url('documents.php'), 'err'
 
 $folder_id = (int)($doc['folder_id'] ?? 0);
 $origin = $_GET['origin'] ?? $_POST['origin'] ?? '';
+if (!AccessControl::canDeleteDocument($db, $user, $id)) {
+    $target = $origin === 'private'
+        ? ($folder_id > 0 ? "private.php?folder_id={$folder_id}" : 'private.php')
+        : ($origin === 'folders' && $folder_id > 0 ? "folders.php?id={$folder_id}" : 'documents.php');
+    flash_redirect(page_url($target), 'err', 'You do not have delete permission for this file.');
+}
+
 $stmt = $db->prepare('UPDATE documents SET is_deleted=1 WHERE id=?');
 $stmt->bind_param('i', $id);
 $stmt->execute();

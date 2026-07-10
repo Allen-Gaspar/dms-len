@@ -3,7 +3,7 @@
  * version_control.php — Checkout, Checkin, Version History Logging, Overwrites, and Rollback Control Engine.
  */
 require_once __DIR__ . '/../core/auth.php';
-$user = require_role('contributor', 'admin');
+$user = require_login();
 $db   = get_db();
 $perms = (new User())->getPermissions((int)$user['id']);
 
@@ -28,15 +28,40 @@ function context_redirect($message_type, $message_text) {
 }
 
 function can_access_document(mysqli $db, array $user, array $doc): bool {
-    if ((int)($doc['is_private'] ?? 0) !== 1 || (int)$doc['uploaded_by'] === (int)$user['id']) {
-        return true;
+    return AccessControl::canViewDocument($db, $user, (int)$doc['id']);
+}
+
+function can_document_capability(mysqli $db, array $user, int $documentId, string $capability): bool {
+    if ($capability === 'can_edit') {
+        return AccessControl::canEditDocument($db, $user, $documentId);
     }
-    $docId = (int)$doc['id'];
-    $userId = (int)$user['id'];
-    $chk = $db->prepare('SELECT id FROM document_shares WHERE document_id=? AND shared_with_user_id=? LIMIT 1');
-    $chk->bind_param('ii', $docId, $userId);
-    $chk->execute();
-    return (bool)$chk->get_result()->fetch_assoc();
+    if ($capability === 'can_delete') {
+        return AccessControl::canDeleteDocument($db, $user, $documentId);
+    }
+
+    $stmt = $db->prepare('SELECT uploaded_by, is_private, folder_id FROM documents WHERE id=? AND is_deleted=0 LIMIT 1');
+    $stmt->bind_param('i', $documentId);
+    $stmt->execute();
+    $doc = $stmt->get_result()->fetch_assoc();
+    if (!$doc) return false;
+    if ((int)$doc['uploaded_by'] === (int)$user['id']) return true;
+    if ((int)$doc['is_private'] === 0 && $user['role'] === 'admin') return true;
+
+    if (!empty($doc['folder_id'])) {
+        $sql = "SELECT {$capability} AS allowed FROM folder_shares WHERE folder_id=? AND shared_with_user_id=? LIMIT 1";
+        $fstmt = $db->prepare($sql);
+        $fstmt->bind_param('ii', $doc['folder_id'], $user['id']);
+        $fstmt->execute();
+        $perm = $fstmt->get_result()->fetch_assoc();
+        if ($perm && (int)$perm['allowed'] === 1) return true;
+    }
+
+    $sql = "SELECT {$capability} AS allowed FROM document_shares WHERE document_id=? AND shared_with_user_id=? LIMIT 1";
+    $pstmt = $db->prepare($sql);
+    $pstmt->bind_param('ii', $documentId, $user['id']);
+    $pstmt->execute();
+    $share = $pstmt->get_result()->fetch_assoc();
+    return $share && (int)$share['allowed'] === 1;
 }
 
 // FIXED ACTIONS WHITELIST: Permitting all modal API fetch requests to pass safely
@@ -78,7 +103,7 @@ if ($action === 'silent_lock') {
         $doc_stmt->bind_param('i', $id);
         $doc_stmt->execute();
         $lock_doc = $doc_stmt->get_result()->fetch_assoc();
-        if (!$lock_doc || !can_access_document($db, $user, $lock_doc)) { echo json_encode(['success' => false]); exit; }
+        if (!$lock_doc || !can_document_capability($db, $user, $id, 'can_checkout')) { echo json_encode(['success' => false]); exit; }
         $stmt = $db->prepare("UPDATE documents SET is_locked = 1, locked_by = ? WHERE id = ? AND is_locked = 0");
         $stmt->bind_param('ii', $user['id'], $id);
         $stmt->execute();
@@ -95,7 +120,7 @@ if ($action === 'silent_unlock') {
         $doc_stmt->bind_param('i', $id);
         $doc_stmt->execute();
         $unlock_doc = $doc_stmt->get_result()->fetch_assoc();
-        if (!$unlock_doc || !can_access_document($db, $user, $unlock_doc)) { echo json_encode(['success' => false]); exit; }
+        if (!$unlock_doc || !can_document_capability($db, $user, $id, 'can_checkout')) { echo json_encode(['success' => false]); exit; }
         $stmt = $db->prepare("UPDATE documents SET is_locked = 0, locked_by = NULL WHERE id = ? AND locked_by = ?");
         $stmt->bind_param('ii', $id, $user['id']);
         $stmt->execute();
@@ -124,8 +149,8 @@ if ($action === 'commit_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$current_doc) {
         context_redirect('err', 'Document execution profile missing.');
     }
-    if (!can_access_document($db, $user, $current_doc)) {
-        context_redirect('err', 'Access denied.');
+    if (!can_document_capability($db, $user, $doc_id, 'can_edit')) {
+        context_redirect('err', 'You do not have edit access for this file.');
     }
 
     $file = $_FILES['revised_document'];
@@ -169,8 +194,8 @@ if ($action === 'rollback') {
         $doc_stmt->bind_param('i', $doc_id);
         $doc_stmt->execute();
         $rollback_doc = $doc_stmt->get_result()->fetch_assoc();
-        if (!$rollback_doc || !can_access_document($db, $user, $rollback_doc)) {
-            context_redirect('err', 'Access denied.');
+        if (!$rollback_doc || !can_document_capability($db, $user, $doc_id, 'can_edit')) {
+            context_redirect('err', 'You do not have edit access for this file.');
         }
         $u_stmt = $db->prepare("UPDATE documents SET storage_path = ?, size = ?, version = ?, is_locked = 0, locked_by = NULL WHERE id = ?");
         $u_stmt->bind_param('siii', $v_data['storage_path'], $v_data['file_size'], $v_data['version_number'], $doc_id);
@@ -199,6 +224,9 @@ if ($action === 'checkout') {
     if (empty($perms['can_checkout'])) {
         context_redirect('err', 'You do not have lock/unlock access.');
     }
+    if (!can_document_capability($db, $user, $id, 'can_checkout')) {
+        context_redirect('err', 'You do not have lock/unlock access for this file.');
+    }
     if ($doc['is_locked']) { 
         context_redirect('err', "Document is already locked."); 
     }
@@ -215,6 +243,9 @@ if ($action === 'checkout') {
 if ($action === 'checkin') {
     if (empty($perms['can_checkout'])) {
         context_redirect('err', 'You do not have lock/unlock access.');
+    }
+    if (!can_document_capability($db, $user, $id, 'can_checkout')) {
+        context_redirect('err', 'You do not have lock/unlock access for this file.');
     }
     if (!$doc['is_locked']) { 
         context_redirect('err', 'Document is not locked.'); 

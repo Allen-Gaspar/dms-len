@@ -113,7 +113,7 @@ const DMS = {
         formData.append('id', id);
         formData.append('filename', cleanName);
         this.showLoading();
-        fetch((window.DMS_BASE || '') + 'api/rename_file.php', { method: 'POST', body: formData })
+        fetch((window.DMS_BASE || '') + 'api/rename.php', { method: 'POST', body: formData })
             .then(r => r.json())
             .then(data => {
                 this.toast(data.message || (data.success ? 'Updated' : 'No update made.'), data.success ? 'success' : 'error');
@@ -195,6 +195,71 @@ const DMS = {
 };
 window.DMS = DMS;
 
+window.openFolderShareModal = window.openFolderShareModal || function(folderId, folderName) {
+    if (!document.getElementById('folderShareModal')) return;
+    const idInput = document.getElementById('folderShareId');
+    const nameLabel = document.getElementById('folderShareName');
+    const emailInput = document.getElementById('folderShareEmail');
+    const allUsers = document.getElementById('folderShareAllUsers');
+    if (idInput) idInput.value = folderId;
+    if (nameLabel) nameLabel.textContent = folderName || 'Selected folder';
+    if (emailInput) {
+        emailInput.value = '';
+        emailInput.disabled = false;
+    }
+    if (allUsers) allUsers.checked = false;
+    ['fs_all','fs_add','fs_edit','fs_delete','fs_download','fs_checkout','fs_share'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.checked = true;
+    });
+    DMS.openModal('folderShareModal');
+};
+
+window.submitFolderShare = window.submitFolderShare || function() {
+    const folderId = document.getElementById('folderShareId')?.value;
+    const allUsers = document.getElementById('folderShareAllUsers')?.checked ? 1 : 0;
+    const email = document.getElementById('folderShareEmail')?.value.trim() || '';
+    if (!folderId) return;
+    if (!allUsers && !email) {
+        DMS.toast('Type the user email first', 'error');
+        return;
+    }
+    DMS.showLoading();
+    fetch((window.DMS_BASE || '') + 'api/folder_control.php?action=grant_access_by_email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            folder_id: folderId,
+            all_users: allUsers,
+            email,
+            can_add: document.getElementById('fs_add')?.checked ? 1 : 0,
+            can_edit: document.getElementById('fs_edit')?.checked ? 1 : 0,
+            can_delete: document.getElementById('fs_delete')?.checked ? 1 : 0,
+            can_download: document.getElementById('fs_download')?.checked ? 1 : 0,
+            can_checkout: document.getElementById('fs_checkout')?.checked ? 1 : 0,
+            can_share: document.getElementById('fs_share')?.checked ? 1 : 0
+        })
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                DMS.toast(data.message || 'Folder shared successfully');
+                DMS.closeModal('folderShareModal');
+            } else {
+                DMS.toast(data.message || 'Folder share failed', 'error');
+            }
+        })
+        .catch(() => DMS.toast('Folder share failed', 'error'))
+        .finally(() => DMS.hideLoading());
+};
+
+window.toggleFolderShareAll = window.toggleFolderShareAll || function(master) {
+    ['fs_add','fs_edit','fs_delete','fs_download','fs_checkout','fs_share'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.checked = master.checked;
+    });
+};
+
 function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, ch => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
@@ -230,6 +295,107 @@ function renderPreview(url, ext, filename) {
         return `<div class="preview-fallback office-preview"><strong>${escapeHtml(filename)}</strong><span>Office preview depends on browser support for this file type.</span><iframe class="file-preview-frame" src="${url}" title="${escapeHtml(filename)}"></iframe></div>`;
     }
     return `<iframe class="file-preview-frame" src="${url}" title="${escapeHtml(filename)}"></iframe>`;
+}
+
+function renderPrivateFolderFiles() {
+    const params = new URLSearchParams(window.location.search);
+    const folderId = params.get('folder_id');
+    const table = document.querySelector('table.file-table');
+    if (!folderId || !table || !window.location.pathname.includes('private.php')) return;
+
+    fetch((window.DMS_BASE || '') + 'api/folder_files.php?folder_id=' + encodeURIComponent(folderId))
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success || !Array.isArray(data.files)) return;
+            const tbody = table.querySelector('tbody');
+            if (!tbody) return;
+            tbody.innerHTML = data.files.length ? data.files.map(file => {
+                const date = (file.created_at || '').slice(0, 10);
+                const time = file.created_at ? new Date(file.created_at.replace(' ', 'T')).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                const actions = [
+                    file.can_download ? `<button class="btn-icon-sm btn-outline" title="Download" onclick="DMS.confirm('Download file','Choose where to save ${escapeHtml(file.filename)}?', ()=>DMS.downloadFile(${file.id}, '${escapeHtml(file.filename).replace(/'/g, '&#039;')}'))">Download</button>` : '',
+                    file.can_checkout ? `<a class="btn-icon-sm btn-warn" title="Lock/Unlock" href="${(window.DMS_BASE || '')}api/version_control.php?action=${file.is_locked ? 'checkin' : 'checkout'}&origin=private&id=${file.id}&folder_id=${folderId}">${file.is_locked ? 'Unlock' : 'Lock'}</a>` : '',
+                    file.can_delete ? `<button class="btn-icon-sm btn-danger" title="Delete" onclick="DMS.confirm('Delete','Move this file to trash?', ()=>location.href='${(window.DMS_BASE || '')}api/delete.php?id=${file.id}&origin=private')">Delete</button>` : ''
+                ].filter(Boolean).join('');
+                return `<tr data-private-file-name="${escapeHtml(file.filename.toLowerCase())}">
+                    <td><button type="button" class="file-name-link" onclick="DMS.openFileDetail(${file.id})">${escapeHtml(file.filename)}</button></td>
+                    <td><span class="file-type-pill">${escapeHtml(file.ext)}</span></td>
+                    <td><button type="button" class="version-link" onclick="DMS.openFileDetail(${file.id})">v${file.version || 1}</button></td>
+                    <td>${formatBytes(Number(file.size || 0))}</td>
+                    <td>${escapeHtml(file.uploaded_by || '-')}</td>
+                    <td>${file.is_locked ? '<span class="badge badge-warn">Locked</span>' : '<span class="badge badge-ok">Available</span>'}</td>
+                    <td class="date-col">${escapeHtml(date)}<span class="timestamp-time">${escapeHtml(time)}</span></td>
+                    <td><div class="actions-container nowrap">${actions}</div></td>
+                </tr>`;
+            }).join('') : '<tr><td colspan="8" class="empty-row">No private files.</td></tr>';
+        })
+        .catch(() => {});
+}
+
+function setupAuditBulkTools() {
+    if (!window.location.pathname.includes('audit.php')) return;
+    const table = document.querySelector('.audit-table');
+    if (!table || table.dataset.bulkReady === '1') return;
+    table.dataset.bulkReady = '1';
+    const params = new URLSearchParams(window.location.search);
+
+    fetch((window.DMS_BASE || '') + 'api/audit_bulk.php?action=page_ids&' + params.toString())
+        .then(r => r.json())
+        .then(data => {
+            if (!data.success || !Array.isArray(data.ids)) return;
+            const headerRow = table.querySelector('thead tr');
+            const bodyRows = Array.from(table.querySelectorAll('tbody tr')).filter(row => !row.querySelector('.empty-row'));
+            if (!headerRow || !bodyRows.length) return;
+
+            const toolbar = document.createElement('div');
+            toolbar.className = 'table-toolbar audit-bulk-toolbar';
+            toolbar.innerHTML = `
+                <button type="button" class="btn btn-sm btn-outline" data-audit-select-all>Select All</button>
+                <button type="button" class="btn btn-sm btn-danger" data-audit-delete>Delete Selected</button>
+            `;
+            table.closest('.table-responsive')?.before(toolbar);
+
+            const th = document.createElement('th');
+            th.innerHTML = '<input type="checkbox" data-audit-master>';
+            headerRow.prepend(th);
+            bodyRows.forEach((row, index) => {
+                const id = data.ids[index];
+                const td = document.createElement('td');
+                td.innerHTML = id ? `<input type="checkbox" class="audit-row-check" value="${id}">` : '';
+                row.prepend(td);
+            });
+
+            const setAll = checked => document.querySelectorAll('.audit-row-check').forEach(cb => { cb.checked = checked; });
+            toolbar.querySelector('[data-audit-select-all]')?.addEventListener('click', () => setAll(true));
+            document.querySelector('[data-audit-master]')?.addEventListener('change', event => setAll(event.target.checked));
+            toolbar.querySelector('[data-audit-delete]')?.addEventListener('click', () => {
+                const ids = Array.from(document.querySelectorAll('.audit-row-check:checked')).map(cb => Number(cb.value)).filter(Boolean);
+                if (!ids.length) {
+                    DMS.toast('Select at least one audit log', 'error');
+                    return;
+                }
+                DMS.confirm('Delete audit logs', 'Delete selected audit logs?', () => {
+                    DMS.showLoading();
+                    fetch((window.DMS_BASE || '') + 'api/audit_bulk.php?action=delete', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids })
+                    })
+                        .then(r => r.json())
+                        .then(result => {
+                            if (result.success) {
+                                DMS.toast(result.message || 'Audit logs deleted');
+                                setTimeout(() => window.location.reload(), 600);
+                            } else {
+                                DMS.toast(result.message || 'Delete failed', 'error');
+                            }
+                        })
+                        .catch(() => DMS.toast('Delete failed', 'error'))
+                        .finally(() => DMS.hideLoading());
+                });
+            });
+        })
+        .catch(() => {});
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -270,6 +436,28 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     setupUploadModal();
+    renderPrivateFolderFiles();
+    setupAuditBulkTools();
+
+    if (document.getElementById('folderShareModal')) {
+        document.querySelectorAll('a.private-folder-card[href*="folder_id="]').forEach(card => {
+            if (card.querySelector('.private-folder-share')) return;
+            const url = new URL(card.getAttribute('href'), window.location.href);
+            const folderId = url.searchParams.get('folder_id');
+            const folderName = card.querySelector('.private-folder-name')?.textContent?.trim() || 'Private folder';
+            if (!folderId) return;
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn btn-sm btn-outline private-folder-share';
+            btn.textContent = 'Share';
+            btn.addEventListener('click', event => {
+                event.preventDefault();
+                event.stopPropagation();
+                window.openFolderShareModal(folderId, folderName);
+            });
+            card.appendChild(btn);
+        });
+    }
 });
 
 function setupUploadModal() {

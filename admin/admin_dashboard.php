@@ -31,6 +31,8 @@ $active_files_count = 0;
 $locked_files_count  = 0;
 $trash_files_count   = 0;
 $total_storage_used  = 0;
+$pending_requests = [];
+$pending_requests_count = 0;
 
 $file_stats_query = $db->query("
     SELECT 
@@ -47,6 +49,18 @@ if ($file_stats_query !== false) {
     $locked_files_count = (int)($file_stats['locked_files'] ?? 0);
     $trash_files_count  = (int)($file_stats['trash_files'] ?? 0);
     $total_storage_used = (int)($file_stats['total_size'] ?? 0);
+}
+
+$pending_table_result = $db->query("SHOW TABLES LIKE 'registration_requests'");
+if ($pending_table_result && $pending_table_result->num_rows > 0) {
+    $pending_result = $db->query("SELECT * FROM registration_requests WHERE status='pending' ORDER BY created_at DESC LIMIT 10");
+    if ($pending_result) {
+        $pending_requests = $pending_result->fetch_all(MYSQLI_ASSOC);
+    }
+    $pending_count_result = $db->query("SELECT COUNT(*) FROM registration_requests WHERE status='pending'");
+    if ($pending_count_result) {
+        $pending_requests_count = (int)$pending_count_result->fetch_row()[0];
+    }
 }
 
 // Native SQL Extension Splitting
@@ -242,10 +256,10 @@ include $header_path;
                 </div>
                 <div>
                     <h3 style="font-weight: 800; color: #1e293b; font-size: 1rem;">Pending Review Requests</h3>
-                    <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.125rem;">Manage pending account request.</p>
+                    <p style="font-size: 0.75rem; color: #94a3b8; margin-top: 0.125rem;"><?= $pending_requests_count ?> pending account request<?= $pending_requests_count === 1 ? '' : 's' ?>.</p>
                 </div>
             </div>
-            <span style="color: #cbd5e1; font-weight: 900; font-size: 1.25rem;">&rarr;</span>
+            <?php if ($pending_requests_count > 0): ?><span class="sidebar-count-badge"><?= $pending_requests_count ?> new</span><?php else: ?><span style="color: #cbd5e1; font-weight: 900; font-size: 1.25rem;">&rarr;</span><?php endif; ?>
         </button>
     </div>
 
@@ -369,9 +383,28 @@ include $header_path;
             <h3 style="font-size: 1rem; font-weight: 700; color: #0f172a;">Pending Requests</h3>
             <button onclick="toggleModal('pendingRequestsModal', false)" style="background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer;">&times;</button>
         </div>
-        <div style="padding: 2rem; text-align: center; font-size: 0.875rem; color: #94a3b8; font-style: italic;">
-            All access control allocations are synchronized.
-            <div style="margin-top: 1.5rem; border-top: 1px solid #f1f5f9; padding-top: 1rem; display: flex; justify-content: flex-end;">
+        <div style="padding: 1.25rem; font-size: 0.875rem; color: #334155; max-height: 70vh; overflow:auto;">
+            <?php if (empty($pending_requests)): ?>
+                <div style="padding: 2rem; text-align:center; color:#94a3b8; font-style:italic;">No pending account approvals.</div>
+            <?php else: ?>
+                <div style="display:grid; gap: 0.75rem;">
+                    <?php foreach ($pending_requests as $req): ?>
+                        <div style="border:1px solid #e2e8f0; border-radius:0.75rem; padding:1rem; background:#fff;">
+                            <div style="display:flex; justify-content:space-between; gap:1rem; align-items:flex-start;">
+                                <div>
+                                    <strong style="color:#0f172a;"><?= htmlspecialchars(trim(($req['first_name'] ?? '') . ' ' . ($req['last_name'] ?? ''))) ?></strong>
+                                    <div style="color:#64748b; margin-top:0.25rem;"><?= htmlspecialchars($req['email'] ?? '') ?><?= !empty($req['phone']) ? ' • ' . htmlspecialchars($req['phone']) : '' ?></div>
+                                    <?php if (!empty($req['reasons'])): ?><div style="margin-top:0.5rem; color:#475569;"><?= htmlspecialchars($req['reasons']) ?></div><?php endif; ?>
+                                    <small style="display:block; margin-top:0.5rem; color:#94a3b8;"><?= htmlspecialchars($req['created_at'] ?? '') ?></small>
+                                </div>
+                                <a href="<?= app_url('admin/admin_approvals.php') ?>" class="btn btn-sm btn-primary" style="text-decoration:none;">Review</a>
+                            </div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            <?php endif; ?>
+            <div style="margin-top: 1.5rem; border-top: 1px solid #f1f5f9; padding-top: 1rem; display: flex; justify-content: flex-end; gap:0.5rem;">
+                <a href="<?= app_url('admin/admin_approvals.php') ?>" class="btn btn-outline" style="text-decoration:none;">Open Approvals</a>
                 <button type="button" onclick="toggleModal('pendingRequestsModal', false)" style="padding: 0.5rem 1.25rem; background: #1e293b; color: #fff; border-radius: 0.5rem; border: none; font-weight: 700; cursor: pointer;">Close</button>
             </div>
         </div>

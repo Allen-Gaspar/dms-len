@@ -24,7 +24,7 @@ $doc = $stmt->get_result()->fetch_assoc();
 
 if (!$doc) { http_response_code(404); die('Document not found.'); }
 
-if (!AccessControl::canViewDocument($db, $user, $id)) {
+if (!AccessControl::canViewDocument($db, $user, $id) && !($role === 'admin' && (int)($doc['is_deleted'] ?? 0) === 1)) {
     http_response_code(403); die('Access denied.');
 }
 

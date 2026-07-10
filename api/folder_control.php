@@ -18,11 +18,18 @@ if ($role === 'casual') {
 header('Content-Type: application/json');
 
 function can_manage_folder(mysqli $db, array $user, int $folderId): bool {
-    $stmt = $db->prepare('SELECT created_by FROM folders WHERE id=? LIMIT 1');
+    $stmt = $db->prepare('SELECT created_by, is_private FROM folders WHERE id=? LIMIT 1');
     $stmt->bind_param('i', $folderId);
     $stmt->execute();
     $folder = $stmt->get_result()->fetch_assoc();
-    return $folder && ((int)$folder['created_by'] === (int)$user['id'] || $user['role'] === 'admin');
+    if (!$folder) return false;
+    if ((int)$folder['created_by'] === (int)$user['id']) return true;
+    if ($user['role'] === 'admin' && (int)$folder['is_private'] === 0) return true;
+    $share = $db->prepare('SELECT can_share FROM folder_shares WHERE folder_id=? AND shared_with_user_id=? LIMIT 1');
+    $share->bind_param('ii', $folderId, $user['id']);
+    $share->execute();
+    $row = $share->get_result()->fetch_assoc();
+    return $row && (int)$row['can_share'] === 1;
 }
 
 function upsert_folder_share(mysqli $db, int $folderId, int $targetUserId, array $perms): bool {
@@ -49,6 +56,37 @@ function upsert_folder_share(mysqli $db, int $folderId, int $targetUserId, array
         $perms['can_share']
     );
     return $stmt->execute();
+}
+
+function descendant_folder_ids(mysqli $db, int $folderId): array {
+    $col = $db->query("SHOW COLUMNS FROM folders LIKE 'parent_id'");
+    if (!$col || $col->num_rows === 0) return [];
+
+    $ids = [];
+    $queue = [$folderId];
+    while ($queue) {
+        $parentId = array_shift($queue);
+        $stmt = $db->prepare('SELECT id FROM folders WHERE parent_id = ?');
+        $stmt->bind_param('i', $parentId);
+        $stmt->execute();
+        $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+        foreach ($rows as $row) {
+            $childId = (int)$row['id'];
+            if ($childId > 0 && !in_array($childId, $ids, true)) {
+                $ids[] = $childId;
+                $queue[] = $childId;
+            }
+        }
+    }
+    return $ids;
+}
+
+function upsert_folder_share_tree(mysqli $db, int $folderId, int $targetUserId, array $perms): bool {
+    $ok = upsert_folder_share($db, $folderId, $targetUserId, $perms);
+    foreach (descendant_folder_ids($db, $folderId) as $childId) {
+        $ok = upsert_folder_share($db, $childId, $targetUserId, $perms) && $ok;
+    }
+    return $ok;
 }
 
 switch ($action) {
@@ -106,7 +144,7 @@ switch ($action) {
         }
 
         $perms = compact('can_add', 'can_edit', 'can_delete', 'can_checkout', 'can_download', 'can_share');
-        if (upsert_folder_share($db, $folder_id, $shared_with_user_id, $perms)) {
+        if (upsert_folder_share_tree($db, $folder_id, $shared_with_user_id, $perms)) {
             audit_log($user['id'], 'FOLDER_SHARE', "Granted folder access: folder_id={$folder_id}, user_id={$shared_with_user_id}");
             echo json_encode(['success' => true]);
         } else {
@@ -163,7 +201,7 @@ switch ($action) {
         $count = 0;
         foreach ($targets as $targetId) {
             if ($targetId !== (int)$user['id']) {
-                if (upsert_folder_share($db, $folder_id, $targetId, $perms)) {
+                if (upsert_folder_share_tree($db, $folder_id, $targetId, $perms)) {
                     $count++;
                 } else {
                     $ok = false;

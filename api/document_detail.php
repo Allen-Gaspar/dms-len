@@ -63,7 +63,7 @@ if (!$doc) {
 }
 
 // Use unified access control
-if (!AccessControl::canViewDocument($db, $user, $id)) {
+if (!AccessControl::canViewDocument($db, $user, $id) && !($user['role'] === 'admin' && (int)($doc['is_deleted'] ?? 0) === 1)) {
     echo json_encode(['success' => false, 'message' => 'Access denied']);
     exit;
 }
@@ -86,7 +86,7 @@ foreach ($vstmt->get_result()->fetch_all(MYSQLI_ASSOC) as $version) {
 echo json_encode([
     'success' => true,
     'doc' => $doc,
-    'preview_url' => $canPreview ? app_url('api/download.php?id=' . $id . '&preview=1') : null,
+    'preview_url' => $canPreview ? app_url('api/download.php?id=' . $id . '&preview=1' . ((int)($doc['is_deleted'] ?? 0) === 1 ? '&trash=1' : '')) : null,
     'download_url' => app_url('api/download.php?id=' . $id),
     'ext' => $ext,
     'can_preview' => $canPreview,

@@ -3,7 +3,7 @@
  * share.php — Document sharing management and dynamic API permissions endpoint.
  */
 require_once __DIR__ . '/../core/auth.php';
-$user = require_role('contributor', 'admin');
+$user = require_login();
 $db   = get_db();
 $perms = (new User())->getPermissions((int)$user['id']);
 if (empty($perms['can_share'])) {

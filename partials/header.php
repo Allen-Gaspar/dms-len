@@ -12,6 +12,18 @@ $brandName = $brand['brand_name'] ?? DEFAULT_BRAND;
 $notifObj = new Notification();
 $unreadCount = $notifObj->countUnread((int)$user['id']);
 $notifications = $notifObj->getUnread((int)$user['id'], 8);
+$sidebarTrashCount = 0;
+$sidebarApprovalCount = 0;
+if ($role === 'admin') {
+    $sidebarDb = get_db();
+    $trashCountRes = $sidebarDb->query('SELECT COUNT(*) FROM documents WHERE is_deleted=1');
+    if ($trashCountRes) $sidebarTrashCount = (int)$trashCountRes->fetch_row()[0];
+    $approvalTableRes = $sidebarDb->query("SHOW TABLES LIKE 'registration_requests'");
+    if ($approvalTableRes && $approvalTableRes->num_rows > 0) {
+        $approvalCountRes = $sidebarDb->query("SELECT COUNT(*) FROM registration_requests WHERE status='pending'");
+        if ($approvalCountRes) $sidebarApprovalCount = (int)$approvalCountRes->fetch_row()[0];
+    }
+}
 
 $toast = toast_from_get();
 $current_file = basename($_SERVER['PHP_SELF']);
@@ -84,9 +96,9 @@ $is_dashboard_active = in_array($current_file, ['dashboard.php', 'admin_dashboar
 
             <?php if ($role === 'admin'): ?>
                 <a href="<?= page_url('users.php') ?>" class="nav-item <?= in_array($current_file, ['users.php','user_detail.php']) ? 'active' : '' ?>"><span class="nav-icon">◉</span><span class="nav-label">Users</span></a>
-                <a href="<?= page_url('trash.php') ?>" class="nav-item <?= $current_file === 'trash.php' ? 'active' : '' ?>"><span class="nav-icon">⌫</span><span class="nav-label">Trash</span></a>
+                <a href="<?= page_url('trash.php') ?>" class="nav-item <?= $current_file === 'trash.php' ? 'active' : '' ?>"><span class="nav-icon">⌫</span><span class="nav-label">Trash</span><?php if ($sidebarTrashCount > 0): ?><span class="sidebar-count-badge"><?= $sidebarTrashCount ?> new</span><?php endif; ?></a>
                 <a href="<?= page_url('audit.php') ?>" class="nav-item <?= $current_file === 'audit.php' ? 'active' : '' ?>"><span class="nav-icon">≡</span><span class="nav-label">Audit Log</span></a>
-                <a href="<?= app_url('admin/admin_approvals.php') ?>" class="nav-item <?= $current_file === 'admin_approvals.php' ? 'active' : '' ?>"><span class="nav-icon">✓</span><span class="nav-label">Approvals</span></a>
+                <a href="<?= app_url('admin/admin_approvals.php') ?>" class="nav-item <?= $current_file === 'admin_approvals.php' ? 'active' : '' ?>"><span class="nav-icon">✓</span><span class="nav-label">Approvals</span><?php if ($sidebarApprovalCount > 0): ?><span class="sidebar-count-badge"><?= $sidebarApprovalCount ?> new</span><?php endif; ?></a>
             <?php endif; ?>
         </nav>
 

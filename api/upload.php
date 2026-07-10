@@ -10,7 +10,7 @@ $db   = get_db();
 $role = $user['role'];
 $perms = (new User())->getPermissions((int)$user['id']);
 
-if ($role === 'casual' || empty($perms['can_add'])) {
+if (empty($perms['can_add'])) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized']);
     exit;
 }

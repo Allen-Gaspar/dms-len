@@ -153,8 +153,8 @@ $folder_files   = [];
 $folder_files_total = 0;
 $child_folders  = [];
 if ($current_folder_id > 0) {
-    $f_stmt = $db->prepare("SELECT DISTINCT f.* FROM folders f LEFT JOIN folder_shares fs ON fs.folder_id = f.id AND fs.shared_with_user_id = ? WHERE f.id = ? AND (f.is_private = 0 OR f.created_by = ? OR fs.shared_with_user_id IS NOT NULL) LIMIT 1");
-    $f_stmt->bind_param('iii', $user['id'], $current_folder_id, $user['id']);
+    $f_stmt = $db->prepare("SELECT DISTINCT f.* FROM folders f LEFT JOIN folder_shares fs ON fs.folder_id = f.id AND fs.shared_with_user_id = ? LEFT JOIN folder_shares pfs ON pfs.folder_id = f.parent_id AND pfs.shared_with_user_id = ? WHERE f.id = ? AND (f.is_private = 0 OR f.created_by = ? OR fs.shared_with_user_id IS NOT NULL OR pfs.shared_with_user_id IS NOT NULL) LIMIT 1");
+    $f_stmt->bind_param('iiii', $user['id'], $user['id'], $current_folder_id, $user['id']);
     $f_stmt->execute();
     $current_folder = $f_stmt->get_result()->fetch_assoc();
 
@@ -191,11 +191,12 @@ if ($current_folder_id > 0) {
             $child_stmt = $db->prepare(
                 "SELECT DISTINCT f.* FROM folders f
                  LEFT JOIN folder_shares fs ON fs.folder_id = f.id AND fs.shared_with_user_id = ?
+                 LEFT JOIN folder_shares pfs ON pfs.folder_id = ? AND pfs.shared_with_user_id = ?
                  WHERE f.parent_id = ?
-                   AND (f.is_private = 0 OR f.created_by = ? OR fs.shared_with_user_id IS NOT NULL)
+                   AND (f.is_private = 0 OR f.created_by = ? OR fs.shared_with_user_id IS NOT NULL OR pfs.shared_with_user_id IS NOT NULL)
                  ORDER BY f.name ASC"
             );
-            $child_stmt->bind_param('iii', $user['id'], $current_folder_id, $user['id']);
+            $child_stmt->bind_param('iiiii', $user['id'], $current_folder_id, $user['id'], $current_folder_id, $user['id']);
             $child_stmt->execute();
             $child_folders = $child_stmt->get_result()->fetch_all(MYSQLI_ASSOC);
         }
@@ -463,11 +464,14 @@ include __DIR__ . '/../partials/header.php';
         <div class="folder-section-title">Folders Inside</div>
         <div class="folder-list-grid nested-folder-grid">
           <?php foreach ($child_folders as $child): ?>
-            <a href="<?= page_url('folders.php?id=' . (int)$child['id']) ?>" class="folder-item-node">
-              <span class="folder-node-meta-title">
+            <div class="folder-item-node">
+              <a href="<?= page_url('folders.php?id=' . (int)$child['id']) ?>" class="folder-node-meta-title" style="text-decoration:none; color:inherit; flex:1;">
                 <span>Folder</span> <?= htmlspecialchars($child['name']) ?>
-              </span>
-            </a>
+              </a>
+              <?php if ($role !== 'casual' && !empty($userPerms['can_share'])): ?>
+                <button type="button" class="btn-icon-sm" style="background:#6366f1;color:white;" title="Folder Access" onclick="openFolderAccessModal(<?= (int)$child['id'] ?>, '<?= htmlspecialchars(addslashes($child['name'])) ?>')">Share</button>
+              <?php endif; ?>
+            </div>
           <?php endforeach; ?>
         </div>
       <?php endif; ?>
@@ -548,11 +552,11 @@ include __DIR__ . '/../partials/header.php';
                       </a>
                     <?php endif; ?>
 
-                    <?php if (!empty($userPerms['can_delete'])): ?>
-                    <button type="button" class="btn-icon-sm btn-danger" title="Delete File" onclick="DMS.confirm('Delete','Move this file to trash?', ()=>location.href='<?= app_url('api/delete.php?id=' . (int)$doc_row['id'] . '&origin=folders') ?>')">
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
-                    </button>
-                    <?php endif; ?>
+                  <?php endif; ?>
+                  <?php if (!empty($userPerms['can_delete']) && AccessControl::canDeleteDocument($db, $user, (int)$doc_row['id'])): ?>
+                  <button type="button" class="btn-icon-sm btn-danger" title="Delete File" onclick="DMS.confirm('Delete','Move this file to trash?', ()=>location.href='<?= app_url('api/delete.php?id=' . (int)$doc_row['id'] . '&origin=folders') ?>')">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                  </button>
                   <?php endif; ?>
                 </div>
               </td>
