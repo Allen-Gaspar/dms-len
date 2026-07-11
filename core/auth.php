@@ -41,13 +41,14 @@ class Auth {
     public static function refreshSession(int $userId): void {
         self::startSession();
         $db = get_db();
-        $stmt = $db->prepare('SELECT id, username, email, role, status, theme FROM users WHERE id=?');
+        $stmt = $db->prepare('SELECT id, username, first_name, last_name, email, role, status, theme FROM users WHERE id=?');
         $stmt->bind_param('i', $userId);
         $stmt->execute();
         $u = $stmt->get_result()->fetch_assoc();
         if ($u) {
             $_SESSION['user'] = [
                 'id' => (int)$u['id'], 'username' => $u['username'],
+                'first_name' => $u['first_name'] ?? '', 'last_name' => $u['last_name'] ?? '',
                 'email' => $u['email'], 'role' => $u['role'],
                 'status' => $u['status'], 'theme' => $u['theme'] ?? 'light',
             ];

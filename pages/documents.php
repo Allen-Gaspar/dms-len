@@ -25,45 +25,23 @@ $typeLike = $fileType !== '' ? '%.' . $fileType : '%';
 $offset = max(0, (int)($_GET['offset'] ?? 0));
 $limit  = ROWS_PER_PAGE;
 
-// Count total
-if ($role === 'casual') {
-    $countStmt = $db->prepare('SELECT COUNT(*) FROM documents d INNER JOIN document_shares ds ON ds.document_id=d.id AND ds.shared_with_user_id=? WHERE d.is_deleted=0 AND d.filename LIKE ? AND d.filename LIKE ?');
-    $countStmt->bind_param('iss', $user['id'], $like, $typeLike);
-} else {
-    $countStmt = $db->prepare('SELECT COUNT(DISTINCT d.id) FROM documents d LEFT JOIN document_shares ds ON ds.document_id=d.id AND ds.shared_with_user_id=? WHERE d.is_deleted=0 AND (d.is_private=0 OR d.uploaded_by=? OR ds.shared_with_user_id IS NOT NULL) AND d.filename LIKE ? AND d.filename LIKE ?');
-    $countStmt->bind_param('iiss', $user['id'], $user['id'], $like, $typeLike);
-}
+$countStmt = $db->prepare('SELECT COUNT(DISTINCT d.id) FROM documents d LEFT JOIN document_shares ds ON ds.document_id=d.id AND ds.shared_with_user_id=? WHERE d.is_deleted=0 AND (d.is_private=0 OR d.uploaded_by=? OR ds.shared_with_user_id IS NOT NULL) AND d.filename LIKE ? AND d.filename LIKE ?');
+$countStmt->bind_param('iiss', $user['id'], $user['id'], $like, $typeLike);
 $countStmt->execute();
 $total = (int)$countStmt->get_result()->fetch_row()[0];
 
-// Fetch paginated documents
-if ($role === 'casual') {
-    $stmt = $db->prepare(
-        'SELECT d.*, u.username AS uploader_name, ur.role AS uploader_role, lk.username AS locker_name, lk.role AS locker_role
-         FROM documents d
-         INNER JOIN document_shares ds ON ds.document_id = d.id AND ds.shared_with_user_id = ?
-         LEFT JOIN users u  ON u.id = d.uploaded_by
-         LEFT JOIN users ur ON ur.id = d.uploaded_by
-         LEFT JOIN users lk ON lk.id = d.locked_by
-         WHERE d.is_deleted = 0 AND d.filename LIKE ? AND d.filename LIKE ?
-         ORDER BY d.created_at DESC LIMIT ? OFFSET ?'
-    );
-    $stmt->bind_param('issii', $user['id'], $like, $typeLike, $limit, $offset);
-    $stmt->execute();
-} else {
-    $stmt = $db->prepare(
-        'SELECT d.*, u.username AS uploader_name, ur.role AS uploader_role, lk.username AS locker_name, lk.role AS locker_role
-         FROM documents d
-         LEFT JOIN document_shares ds ON ds.document_id = d.id AND ds.shared_with_user_id = ?
-         LEFT JOIN users u  ON u.id = d.uploaded_by
-         LEFT JOIN users ur ON ur.id = d.uploaded_by
-         LEFT JOIN users lk ON lk.id = d.locked_by
-         WHERE d.is_deleted = 0 AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL) AND d.filename LIKE ? AND d.filename LIKE ?
-         ORDER BY d.created_at DESC LIMIT ? OFFSET ?'
-    );
-    $stmt->bind_param('iissii', $user['id'], $user['id'], $like, $typeLike, $limit, $offset);
-    $stmt->execute();
-}
+$stmt = $db->prepare(
+    'SELECT d.*, u.username AS uploader_name, ur.role AS uploader_role, lk.username AS locker_name, lk.role AS locker_role
+     FROM documents d
+     LEFT JOIN document_shares ds ON ds.document_id = d.id AND ds.shared_with_user_id = ?
+     LEFT JOIN users u  ON u.id = d.uploaded_by
+     LEFT JOIN users ur ON ur.id = d.uploaded_by
+     LEFT JOIN users lk ON lk.id = d.locked_by
+     WHERE d.is_deleted = 0 AND (d.is_private = 0 OR d.uploaded_by = ? OR ds.shared_with_user_id IS NOT NULL) AND d.filename LIKE ? AND d.filename LIKE ?
+     ORDER BY d.created_at DESC LIMIT ? OFFSET ?'
+);
+$stmt->bind_param('iissii', $user['id'], $user['id'], $like, $typeLike, $limit, $offset);
+$stmt->execute();
 $documents = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 
 // Fetch system users for the sharing matrix inside the modal

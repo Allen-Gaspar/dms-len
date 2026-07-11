@@ -53,8 +53,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])) {
                 // 1. Insert account profile parameters into system users table
                 $password_hash = password_hash($new_password, PASSWORD_BCRYPT);
                 
-                $create_stmt = $db->prepare("INSERT INTO users (username, password_hash, email, role, status) VALUES (?, ?, ?, ?, 'active')");
-                $create_stmt->bind_param('ssss', $new_username, $password_hash, $req_res['email'], $assigned_role);
+                $db->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100) DEFAULT NULL");
+                $db->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100) DEFAULT NULL");
+                $db->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(50) DEFAULT NULL");
+                $create_stmt = $db->prepare("INSERT INTO users (username, password_hash, email, role, status, first_name, last_name, phone) VALUES (?, ?, ?, ?, 'active', ?, ?, ?)");
+                $create_stmt->bind_param('sssssss', $new_username, $password_hash, $req_res['email'], $assigned_role, $req_res['first_name'], $req_res['last_name'], $req_res['phone']);
                 
                 if ($create_stmt->execute()) {
                     $new_user_id = (int)$db->insert_id;

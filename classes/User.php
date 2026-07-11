@@ -8,6 +8,9 @@ class User {
     }
 
     private function ensurePermissionsTable(): void {
+        $this->db->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100) DEFAULT NULL");
+        $this->db->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100) DEFAULT NULL");
+        $this->db->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(50) DEFAULT NULL");
         $this->db->query("CREATE TABLE IF NOT EXISTS user_permissions (
             id INT AUTO_INCREMENT PRIMARY KEY,
             user_id INT NOT NULL UNIQUE,

@@ -18,23 +18,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'update_account') {
+        $firstName = trim($_POST['first_name'] ?? '');
+        $lastName = trim($_POST['last_name'] ?? '');
         $uname = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $phone = trim($_POST['phone'] ?? '');
         $pass  = $_POST['password'] ?? '';
 
-        if (!$uname || !$email) {
-            $error = 'Username and email are required.';
+        if (!$firstName || !$lastName || !$uname || !$email) {
+            $error = 'Full name, username, and email are required.';
         } elseif ($userModel->usernameExists($uname, (int)$user['id'])) {
             $error = 'Username already taken.';
         } else {
             if ($pass && strlen($pass) >= 6) {
                 $hash = password_hash($pass, PASSWORD_DEFAULT);
-                $stmt = $db->prepare('UPDATE users SET username=?, email=?, phone=?, password_hash=? WHERE id=?');
-                $stmt->bind_param('ssssi', $uname, $email, $phone, $hash, $user['id']);
+                $stmt = $db->prepare('UPDATE users SET first_name=?, last_name=?, username=?, email=?, phone=?, password_hash=? WHERE id=?');
+                $stmt->bind_param('ssssssi', $firstName, $lastName, $uname, $email, $phone, $hash, $user['id']);
             } else {
-                $stmt = $db->prepare('UPDATE users SET username=?, email=?, phone=? WHERE id=?');
-                $stmt->bind_param('sssi', $uname, $email, $phone, $user['id']);
+                $stmt = $db->prepare('UPDATE users SET first_name=?, last_name=?, username=?, email=?, phone=? WHERE id=?');
+                $stmt->bind_param('sssssi', $firstName, $lastName, $uname, $email, $phone, $user['id']);
             }
             if ($stmt->execute()) {
                 Auth::refreshSession((int)$user['id']);
@@ -99,6 +101,16 @@ include APP_ROOT . '/partials/header.php';
         <h3>Account Settings</h3>
         <form method="POST">
             <input type="hidden" name="action" value="update_account">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>First Name</label>
+                    <input type="text" name="first_name" value="<?= htmlspecialchars($fullUser['first_name'] ?? '') ?>" required>
+                </div>
+                <div class="form-group">
+                    <label>Last Name</label>
+                    <input type="text" name="last_name" value="<?= htmlspecialchars($fullUser['last_name'] ?? '') ?>" required>
+                </div>
+            </div>
             <div class="form-group">
                 <label>Username (unique)</label>
                 <input type="text" name="username" value="<?= htmlspecialchars($fullUser['username']) ?>" required>

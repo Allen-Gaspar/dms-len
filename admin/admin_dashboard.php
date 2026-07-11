@@ -28,15 +28,20 @@ function format_dashboard_bytes(int $bytes): string {
 
 // ── 2. HIGH-PERFORMANCE DATABASE AGGREGATIONS ─────────────────────────
 $active_files_count = 0;
+$all_files_count = 0;
 $locked_files_count  = 0;
 $trash_files_count   = 0;
 $total_storage_used  = 0;
 $pending_requests = [];
 $pending_requests_count = 0;
+$dashboard_all_files = [];
+$dashboard_locked_files = [];
+$dashboard_trash_files = [];
 
 $file_stats_query = $db->query("
     SELECT 
         COUNT(CASE WHEN is_deleted = 0 THEN 1 END) as active_files,
+        COUNT(*) as all_files,
         COUNT(CASE WHEN is_locked = 1 AND is_deleted = 0 THEN 1 END) as locked_files,
         COUNT(CASE WHEN is_deleted = 1 THEN 1 END) as trash_files,
         SUM(CASE WHEN is_deleted = 0 THEN size ELSE 0 END) as total_size
@@ -46,6 +51,7 @@ $file_stats_query = $db->query("
 if ($file_stats_query !== false) {
     $file_stats = $file_stats_query->fetch_assoc();
     $active_files_count = (int)($file_stats['active_files'] ?? 0);
+    $all_files_count    = (int)($file_stats['all_files'] ?? 0);
     $locked_files_count = (int)($file_stats['locked_files'] ?? 0);
     $trash_files_count  = (int)($file_stats['trash_files'] ?? 0);
     $total_storage_used = (int)($file_stats['total_size'] ?? 0);
@@ -63,12 +69,19 @@ if ($pending_table_result && $pending_table_result->num_rows > 0) {
     }
 }
 
+$all_files_result = $db->query("SELECT id, filename, size, version, is_deleted, created_at FROM documents ORDER BY created_at DESC LIMIT 20");
+if ($all_files_result) $dashboard_all_files = $all_files_result->fetch_all(MYSQLI_ASSOC);
+$locked_files_result = $db->query("SELECT id, filename, locked_by, created_at FROM documents WHERE is_locked=1 AND is_deleted=0 ORDER BY created_at DESC LIMIT 20");
+if ($locked_files_result) $dashboard_locked_files = $locked_files_result->fetch_all(MYSQLI_ASSOC);
+$trash_files_result = $db->query("SELECT id, filename, size, version, created_at FROM documents WHERE is_deleted=1 ORDER BY created_at DESC LIMIT 20");
+if ($trash_files_result) $dashboard_trash_files = $trash_files_result->fetch_all(MYSQLI_ASSOC);
+
 // Native SQL Extension Splitting
 $extensions_breakdown = [];
 $extension_query = $db->query("
     SELECT LOWER(SUBSTRING_INDEX(filename, '.', -1)) AS ext, COUNT(*) AS count 
     FROM documents 
-    WHERE is_deleted = 0 AND filename LIKE '%.%'
+    WHERE filename LIKE '%.%'
     GROUP BY ext ORDER BY count DESC
 ");
 if ($extension_query !== false) {
@@ -152,7 +165,24 @@ for ($i = 2; $i >= 0; $i--) {
     $chart_series['yearly']['adds'][$y] = $chart_series['yearly']['edits'][$y] = $chart_series['yearly']['deletes'][$y] = $chart_series['yearly']['checkouts'][$y] = $chart_series['yearly']['shares'][$y] = 0;
 }
 
-// Map real records dynamically
+// Count uploads directly from documents so one uploaded file counts as exactly one add.
+$doc_add_query = $db->query("SELECT created_at FROM documents WHERE created_at >= DATE_SUB('$anchor_date_str', INTERVAL 3 YEAR)");
+if ($doc_add_query) {
+    while ($doc = $doc_add_query->fetch_assoc()) {
+        $ts = strtotime($doc['created_at']);
+        if (!$ts) continue;
+        $dKey = date('Y-m-d', $ts);
+        $wKey = date('o-W', $ts);
+        $mKey = date('Y-m', $ts);
+        $yKey = date('Y', $ts);
+        if (isset($chart_series['daily']['adds'][$dKey])) $chart_series['daily']['adds'][$dKey]++;
+        if (isset($chart_series['weekly']['adds'][$wKey])) $chart_series['weekly']['adds'][$wKey]++;
+        if (isset($chart_series['monthly']['adds'][$mKey])) $chart_series['monthly']['adds'][$mKey]++;
+        if (isset($chart_series['yearly']['adds'][$yKey])) $chart_series['yearly']['adds'][$yKey]++;
+    }
+}
+
+// Map non-upload audit records dynamically.
 foreach ($raw_logs as $log) {
     $ts = strtotime($log['created_at']);
     $act = strtolower($log['action']);
@@ -175,6 +205,10 @@ foreach ($raw_logs as $log) {
         $type = 'shares';
     } elseif (preg_match('/(upload|add|insert|create)/', $act)) {
         $type = 'adds';
+    }
+
+    if ($type === 'adds') {
+        continue;
     }
 
     if (isset($chart_series['daily']['adds'][$dKey]))      $chart_series['daily'][$type][$dKey]++;
@@ -213,8 +247,15 @@ include $header_path;
     
     /* Padding Fix — Added breathing space so strings are never katabi to borders */
     .dashboard-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 0.75rem; padding: 1.75rem !important; box-shadow: 0 1px 3px rgba(0,0,0,0.02); overflow: hidden; }
+    .dashboard-open-card { cursor: pointer; transition: border-color .2s, box-shadow .2s, transform .2s; }
+    .dashboard-open-card:hover { border-color: #2563eb; box-shadow: 0 6px 18px rgba(37,99,235,.08); transform: translateY(-1px); }
     .action-card-button { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 1.5rem !important; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 0.75rem; cursor: pointer; text-align: left; transition: all 0.2s ease; }
     .action-card-button:hover { border-color: #2563eb; box-shadow: 0 4px 12px rgba(37,99,235,0.06); transform: translateY(-1px); }
+    .extension-count-list { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; justify-content: center; }
+    .extension-count-pill { border: 1px solid #e2e8f0; background: #f8fafc; border-radius: .5rem; padding: .45rem .65rem; display: inline-flex; gap: .35rem; align-items: center; color: #334155; cursor:pointer; }
+    .extension-count-pill strong { color:#0f172a; }
+    .dashboard-table { width:100%; border-collapse: collapse; font-size: .85rem; }
+    .dashboard-table th, .dashboard-table td { padding:.65rem; border-bottom:1px solid #e2e8f0; text-align:left; }
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -265,28 +306,28 @@ include $header_path;
 
     <!-- METRIC BLOCK LAYOUT CARDS -->
     <div class="grid-layout-4">
-        <div class="dashboard-card">
-            <span style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; display: block;">Active System Files</span>
+        <div class="dashboard-card dashboard-open-card" data-dashboard-modal="allFilesModal">
+            <span style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; display: block;">All Files</span>
             <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-top: 0.5rem;">
-                <span style="font-size: 2rem; font-weight: 900; color: #0f172a;"><?= $active_files_count ?></span>
-                <span style="font-size: 0.75rem; font-weight: 600; color: #94a3b8;">active items</span>
+                <span style="font-size: 2rem; font-weight: 900; color: #0f172a;"><?= $all_files_count ?></span>
+                <span style="font-size: 0.75rem; font-weight: 600; color: #94a3b8;"><?= $active_files_count ?> active</span>
             </div>
         </div>
-        <div class="dashboard-card">
+        <div class="dashboard-card dashboard-open-card" data-dashboard-modal="lockedFilesModal">
             <span style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; display: block;">Locked (Checked-Out)</span>
             <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-top: 0.5rem;">
                 <span style="font-size: 2rem; font-weight: 900; color: #d97706;"><?= $locked_files_count ?></span>
                 <span style="font-size: 0.75rem; font-weight: 600; color: #b45309; background: #fffbeb; padding: 0.125rem 0.5rem; border-radius: 0.375rem;">held locks</span>
             </div>
         </div>
-        <div class="dashboard-card">
+        <div class="dashboard-card dashboard-open-card" data-dashboard-modal="trashFilesModal">
             <span style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; display: block;">In System Trash</span>
             <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-top: 0.5rem;">
                 <span style="font-size: 2rem; font-weight: 900; color: #e11d48;"><?= $trash_files_count ?></span>
                 <span style="font-size: 0.75rem; font-weight: 600; color: #be123c; background: #fff1f2; padding: 0.125rem 0.5rem; border-radius: 0.375rem;">soft deleted</span>
             </div>
         </div>
-        <div class="dashboard-card">
+        <div class="dashboard-card dashboard-open-card" data-dashboard-modal="storageModal">
             <span style="font-size: 0.75rem; font-weight: 700; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; display: block;">Total Storage</span>
             <div style="display: flex; align-items: baseline; gap: 0.5rem; margin-top: 0.5rem;">
                 <span style="font-size: 1.75rem; font-weight: 900; color: #2563eb; letter-spacing: -0.025em;"><?= format_dashboard_bytes($total_storage_used) ?></span>
@@ -312,6 +353,16 @@ include $header_path;
             <canvas id="fileTypeDistributionChart"></canvas>
         <?php endif; ?>
     </div>
+    <?php if (!empty($extensions_breakdown)): ?>
+      <div class="extension-count-list">
+        <?php foreach ($extensions_breakdown as $ext => $count): ?>
+          <button type="button" class="extension-count-pill" data-dashboard-modal="extensionsModal">
+            <strong><?= strtoupper(htmlspecialchars($ext)) ?></strong>
+            <span><?= (int)$count ?> file<?= (int)$count === 1 ? '' : 's' ?></span>
+          </button>
+        <?php endforeach; ?>
+      </div>
+    <?php endif; ?>
 </div>
 
         <!-- LINE GRAPH MONITORING -->
@@ -411,6 +462,67 @@ include $header_path;
     </div>
 </div>
 
+<div id="allFilesModal" style="position: fixed; inset: 0; z-index: 101; display: none; background: rgba(15,23,42,0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 1rem;">
+    <div style="background:#fff; border-radius:.75rem; width:min(760px,100%); max-height:85vh; overflow:auto; border:1px solid #e2e8f0;">
+        <div style="padding:1rem 1.25rem; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;"><h3 style="margin:0;">All Files</h3><button onclick="toggleModal('allFilesModal', false)" style="border:0;background:none;font-size:1.5rem;cursor:pointer;">&times;</button></div>
+        <div style="padding:1rem;">
+            <table class="dashboard-table"><thead><tr><th>Filename</th><th>Version</th><th>Size</th><th>Status</th><th>Date</th></tr></thead><tbody>
+            <?php foreach ($dashboard_all_files as $file): ?>
+                <tr><td><?= htmlspecialchars($file['filename']) ?></td><td>v<?= (int)$file['version'] ?></td><td><?= format_dashboard_bytes((int)$file['size']) ?></td><td><?= !empty($file['is_deleted']) ? 'Trash' : 'Active' ?></td><td><?= htmlspecialchars(substr($file['created_at'], 0, 16)) ?></td></tr>
+            <?php endforeach; ?>
+            <?php if (empty($dashboard_all_files)): ?><tr><td colspan="5">No files found.</td></tr><?php endif; ?>
+            </tbody></table>
+        </div>
+    </div>
+</div>
+
+<div id="lockedFilesModal" style="position: fixed; inset: 0; z-index: 101; display: none; background: rgba(15,23,42,0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 1rem;">
+    <div style="background:#fff; border-radius:.75rem; width:min(680px,100%); max-height:85vh; overflow:auto; border:1px solid #e2e8f0;">
+        <div style="padding:1rem 1.25rem; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;"><h3 style="margin:0;">Locked Files</h3><button onclick="toggleModal('lockedFilesModal', false)" style="border:0;background:none;font-size:1.5rem;cursor:pointer;">&times;</button></div>
+        <div style="padding:1rem;">
+            <table class="dashboard-table"><thead><tr><th>Filename</th><th>Locked By</th><th>Date</th></tr></thead><tbody>
+            <?php foreach ($dashboard_locked_files as $file): ?>
+                <tr><td><?= htmlspecialchars($file['filename']) ?></td><td>#<?= (int)$file['locked_by'] ?></td><td><?= htmlspecialchars(substr($file['created_at'], 0, 16)) ?></td></tr>
+            <?php endforeach; ?>
+            <?php if (empty($dashboard_locked_files)): ?><tr><td colspan="3">No locked files.</td></tr><?php endif; ?>
+            </tbody></table>
+        </div>
+    </div>
+</div>
+
+<div id="trashFilesModal" style="position: fixed; inset: 0; z-index: 101; display: none; background: rgba(15,23,42,0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 1rem;">
+    <div style="background:#fff; border-radius:.75rem; width:min(720px,100%); max-height:85vh; overflow:auto; border:1px solid #e2e8f0;">
+        <div style="padding:1rem 1.25rem; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;"><h3 style="margin:0;">Trash Files</h3><button onclick="toggleModal('trashFilesModal', false)" style="border:0;background:none;font-size:1.5rem;cursor:pointer;">&times;</button></div>
+        <div style="padding:1rem;">
+            <table class="dashboard-table"><thead><tr><th>Filename</th><th>Version</th><th>Size</th><th>Date</th></tr></thead><tbody>
+            <?php foreach ($dashboard_trash_files as $file): ?>
+                <tr><td><?= htmlspecialchars($file['filename']) ?></td><td>v<?= (int)$file['version'] ?></td><td><?= format_dashboard_bytes((int)$file['size']) ?></td><td><?= htmlspecialchars(substr($file['created_at'], 0, 16)) ?></td></tr>
+            <?php endforeach; ?>
+            <?php if (empty($dashboard_trash_files)): ?><tr><td colspan="4">Trash is empty.</td></tr><?php endif; ?>
+            </tbody></table>
+        </div>
+    </div>
+</div>
+
+<div id="storageModal" style="position: fixed; inset: 0; z-index: 101; display: none; background: rgba(15,23,42,0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 1rem;">
+    <div style="background:#fff; border-radius:.75rem; width:min(520px,100%); max-height:85vh; overflow:auto; border:1px solid #e2e8f0;">
+        <div style="padding:1rem 1.25rem; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;"><h3 style="margin:0;">Storage Summary</h3><button onclick="toggleModal('storageModal', false)" style="border:0;background:none;font-size:1.5rem;cursor:pointer;">&times;</button></div>
+        <div style="padding:1rem;"><p>Total active storage: <strong><?= format_dashboard_bytes($total_storage_used) ?></strong></p><p>All files: <strong><?= $all_files_count ?></strong></p><p>Active files: <strong><?= $active_files_count ?></strong></p></div>
+    </div>
+</div>
+
+<div id="extensionsModal" style="position: fixed; inset: 0; z-index: 101; display: none; background: rgba(15,23,42,0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; padding: 1rem;">
+    <div style="background:#fff; border-radius:.75rem; width:min(520px,100%); max-height:85vh; overflow:auto; border:1px solid #e2e8f0;">
+        <div style="padding:1rem 1.25rem; border-bottom:1px solid #e2e8f0; display:flex; justify-content:space-between; align-items:center;"><h3 style="margin:0;">File Extensions</h3><button onclick="toggleModal('extensionsModal', false)" style="border:0;background:none;font-size:1.5rem;cursor:pointer;">&times;</button></div>
+        <div style="padding:1rem;">
+            <table class="dashboard-table"><thead><tr><th>Extension</th><th>Files</th></tr></thead><tbody>
+            <?php foreach ($extensions_breakdown as $ext => $count): ?><tr><td><?= strtoupper(htmlspecialchars($ext)) ?></td><td><?= (int)$count ?></td></tr><?php endforeach; ?>
+            <?php if (empty($extensions_breakdown)): ?><tr><td colspan="2">No file extensions found.</td></tr><?php endif; ?>
+            </tbody></table>
+        </div>
+    </div>
+</div>
+
 <script>
 // ── 1. MODAL VISIBILITY CONTROLLER ────────────────────────────────────
 function toggleModal(modalId, show) {
@@ -428,6 +540,14 @@ function toggleModal(modalId, show) {
         document.body.style.overflow = '';
     }
 }
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('[data-dashboard-modal]').forEach(card => {
+        if (card.dataset.bound === '1') return;
+        card.dataset.bound = '1';
+        card.addEventListener('click', () => toggleModal(card.dataset.dashboardModal, true));
+    });
+});
 
 // ── 2. GLOBAL TIMELINE DATA REPOSITORY ────────────────────────────────
 // Safely maps PHP metrics out into a globally accessible JS object context
@@ -449,6 +569,8 @@ function getChartDatasetScope(scope) {
 
 // ── 3. INTERACTIVE ANALYTICS ENGINE (CHART.JS) ────────────────────────
 document.addEventListener("DOMContentLoaded", () => {
+    if (window.dashboardChartsInitialized) return;
+    window.dashboardChartsInitialized = true;
     if (typeof Chart === 'undefined') {
         const timeline = document.getElementById('historicalActivityTimelineChart');
         if (timeline && timeline.parentElement) {

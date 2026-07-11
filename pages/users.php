@@ -12,13 +12,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'create') {
+        $firstName = trim($_POST['first_name'] ?? '');
+        $lastName = trim($_POST['last_name'] ?? '');
+        $phone = trim($_POST['phone'] ?? '');
         $uname = trim($_POST['username'] ?? '');
         $email = trim($_POST['email'] ?? '');
         $pass  = $_POST['password'] ?? '';
         $role  = $_POST['role'] ?? '';
         $roles = ['admin', 'contributor', 'casual'];
 
-        if (!$uname || !$email || !$pass || !in_array($role, $roles, true)) {
+        if (!$firstName || !$lastName || !$uname || !$email || !$pass || !in_array($role, $roles, true)) {
             flash_redirect(page_url('users.php'), 'err', 'All fields required.');
         } elseif (strlen($pass) < 6) {
             flash_redirect(page_url('users.php'), 'err', 'Password min 6 characters.');
@@ -26,8 +29,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $hash = password_hash($pass, PASSWORD_DEFAULT);
                 $adminId = (int)$user['id'];
-                $stmt = $db->prepare('INSERT INTO users (username,email,password_hash,role,admin_id) VALUES (?,?,?,?,?)');
-                $stmt->bind_param('ssssi', $uname, $email, $hash, $role, $adminId);
+                $db->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS first_name VARCHAR(100) DEFAULT NULL");
+                $db->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_name VARCHAR(100) DEFAULT NULL");
+                $db->query("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(50) DEFAULT NULL");
+                $stmt = $db->prepare('INSERT INTO users (first_name,last_name,username,email,phone,password_hash,role,admin_id) VALUES (?,?,?,?,?,?,?,?)');
+                $stmt->bind_param('sssssssi', $firstName, $lastName, $uname, $email, $phone, $hash, $role, $adminId);
                 $stmt->execute();
                 $newUserId = (int)$stmt->insert_id;
                 $perms = [
@@ -125,8 +131,11 @@ include __DIR__ . '/../partials/header.php';
     <form method="POST">
       <input type="hidden" name="action" value="create">
       <div class="user-create-grid">
+        <div class="form-group"><label>First Name</label><input type="text" name="first_name" required></div>
+        <div class="form-group"><label>Last Name</label><input type="text" name="last_name" required></div>
         <div class="form-group"><label>Username</label><input type="text" name="username" required></div>
         <div class="form-group"><label>Email</label><input type="email" name="email" required></div>
+        <div class="form-group"><label>Phone Number</label><input type="text" name="phone"></div>
         <div class="form-group"><label>Password</label><input type="password" name="password" minlength="6" required></div>
         <div class="form-group">
           <label>Role</label>
