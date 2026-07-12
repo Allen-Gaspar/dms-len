@@ -69,7 +69,7 @@ if (!AccessControl::canViewDocument($db, $user, $id) && !($user['role'] === 'adm
 }
 
 $ext = strtolower(pathinfo($doc['filename'], PATHINFO_EXTENSION));
-$previewTypes = ['png','jpg','jpeg','gif','webp','svg','pdf','mp4','webm','mov','txt','csv','json','xml','html','htm','css','js','php','sql','md','log','ppt','pptx','doc','docx','xls','xlsx'];
+$previewTypes = ['png','jpg','jpeg','gif','webp','svg','pdf','mp4','webm','mov','txt','csv','json','xml','html','htm','css','js','php','py','java','c','cpp','cs','rb','go','rs','ts','tsx','jsx','sql','md','log','ini','env','yml','yaml','ppt','pptx','doc','docx','xls','xlsx'];
 $canPreview = in_array($ext, $previewTypes, true);
 
 $versions = [];
@@ -92,6 +92,6 @@ echo json_encode([
     'can_preview' => $canPreview,
     'versions' => $versions,
     'is_admin' => $user['role'] === 'admin',
-    'can_edit' => AccessControl::canEditDocument($db, $user, $id) && !empty((new User())->getPermissions((int)$user['id'])['can_edit']),
-    'can_delete' => AccessControl::canDeleteDocument($db, $user, $id) && !empty((new User())->getPermissions((int)$user['id'])['can_delete']),
+    'can_edit' => $user['role'] === 'admin' || (AccessControl::canEditDocument($db, $user, $id) && !empty((new User())->getPermissions((int)$user['id'])['can_edit'])),
+    'can_delete' => $user['role'] === 'admin' || (AccessControl::canDeleteDocument($db, $user, $id) && !empty((new User())->getPermissions((int)$user['id'])['can_delete'])),
 ]);

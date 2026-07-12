@@ -80,6 +80,11 @@ $mimeMap = [
     'txt'=>'text/plain; charset=utf-8','csv'=>'text/plain; charset=utf-8','json'=>'application/json; charset=utf-8',
     'xml'=>'application/xml; charset=utf-8','html'=>'text/plain; charset=utf-8','htm'=>'text/plain; charset=utf-8',
     'css'=>'text/plain; charset=utf-8','js'=>'text/plain; charset=utf-8','php'=>'text/plain; charset=utf-8',
+    'py'=>'text/plain; charset=utf-8','java'=>'text/plain; charset=utf-8','c'=>'text/plain; charset=utf-8',
+    'cpp'=>'text/plain; charset=utf-8','cs'=>'text/plain; charset=utf-8','rb'=>'text/plain; charset=utf-8',
+    'go'=>'text/plain; charset=utf-8','rs'=>'text/plain; charset=utf-8','ts'=>'text/plain; charset=utf-8',
+    'tsx'=>'text/plain; charset=utf-8','jsx'=>'text/plain; charset=utf-8','ini'=>'text/plain; charset=utf-8',
+    'env'=>'text/plain; charset=utf-8','yml'=>'text/plain; charset=utf-8','yaml'=>'text/plain; charset=utf-8',
     'sql'=>'text/plain; charset=utf-8','md'=>'text/plain; charset=utf-8','log'=>'text/plain; charset=utf-8','zip'=>'application/zip',
 ];
 $mime = $mimeMap[$ext] ?? 'application/octet-stream';

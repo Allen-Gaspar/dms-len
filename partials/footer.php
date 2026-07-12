@@ -1,6 +1,6 @@
 </div></div></div><?php if (!empty($user)): include APP_ROOT . '/partials/modals.php'; endif; ?>
 
-<script src="<?= asset_url('js/app.js') ?>"></script>
+<script src="<?= asset_url('js/app.js') ?>?v=<?= filemtime(APP_ROOT . '/assets/js/app.js') ?>"></script>
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     const sidebar = document.getElementById('dashboard-sidebar');

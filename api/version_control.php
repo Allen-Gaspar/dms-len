@@ -73,6 +73,12 @@ if (!in_array($action, $allowed_actions, true)) {
 
 if ($action === 'commit_permissions_only') {
     header('Content-Type: application/json');
+    $doc_id = (int)($_POST['document_id'] ?? $_POST['doc_id'] ?? 0);
+    if ($doc_id > 0) {
+        $unlock = $db->prepare('UPDATE documents SET is_locked = 0, locked_by = NULL WHERE id = ? AND locked_by = ?');
+        $unlock->bind_param('ii', $doc_id, $user['id']);
+        $unlock->execute();
+    }
     echo json_encode(['success' => true, 'message' => 'No file changes submitted.']);
     exit;
 }
@@ -155,6 +161,9 @@ if ($action === 'commit_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
     $file = $_FILES['revised_document'];
     $ext  = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    $requested_filename = basename(trim($_POST['revised_filename'] ?? $file['name']));
+    if ($requested_filename === '') $requested_filename = basename($file['name']);
+    $final_filename = unique_document_filename($db, $requested_filename, $current_doc['folder_id'] ?? null, $doc_id);
     
     $stored_name = uniqid('doc_rev_', true) . '.' . $ext;
     
@@ -166,8 +175,8 @@ if ($action === 'commit_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // B. Apply increments, clear lock status trackers and update primary record data strings
         $next_version = (int)$current_doc['version'] + 1;
-        $up_stmt = $db->prepare("UPDATE documents SET storage_path = ?, size = ?, version = ?, is_locked = 0, locked_by = NULL WHERE id = ?");
-        $up_stmt->bind_param('siii', $stored_name, $file['size'], $next_version, $doc_id);
+        $up_stmt = $db->prepare("UPDATE documents SET filename = ?, storage_path = ?, size = ?, version = ?, is_locked = 0, locked_by = NULL WHERE id = ?");
+        $up_stmt->bind_param('ssiii', $final_filename, $stored_name, $file['size'], $next_version, $doc_id);
         $up_stmt->execute();
 
         audit_log($user['id'], 'VERSION_BUMP', "Committed file revision for '{$current_doc['filename']}' — now version v{$next_version}");
@@ -177,6 +186,29 @@ if ($action === 'commit_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ── 5. GET ACTION: OPERATE HISTORICAL CHECKPOINT REGRESSION ROLLBACK ────
+function unique_document_filename(mysqli $db, string $filename, $folderId, int $excludeId): string {
+    $filename = basename($filename);
+    $pathInfo = pathinfo($filename);
+    $base = trim($pathInfo['filename'] ?? 'file');
+    $ext = isset($pathInfo['extension']) && $pathInfo['extension'] !== '' ? '.' . $pathInfo['extension'] : '';
+    if ($base === '') $base = 'file';
+
+    $candidate = $base . $ext;
+    $counter = 1;
+    while (document_filename_exists($db, $candidate, $folderId, $excludeId)) {
+        $candidate = $base . ' (' . $counter . ')' . $ext;
+        $counter++;
+    }
+    return $candidate;
+}
+
+function document_filename_exists(mysqli $db, string $filename, $folderId, int $excludeId): bool {
+    $stmt = $db->prepare('SELECT id FROM documents WHERE folder_id <=> ? AND filename = ? AND id != ? AND is_deleted = 0 LIMIT 1');
+    $stmt->bind_param('isi', $folderId, $filename, $excludeId);
+    $stmt->execute();
+    return (bool)$stmt->get_result()->fetch_assoc();
+}
+
 if ($action === 'rollback') {
     if (empty($perms['can_edit'])) {
         context_redirect('err', 'You do not have edit access.');

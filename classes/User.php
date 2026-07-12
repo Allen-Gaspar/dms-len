@@ -63,6 +63,13 @@ class User {
     public function getPermissions(int $userId): array {
         $this->ensurePermissionsTable();
         $defaults = ['can_add' => 1, 'can_download' => 1, 'can_share' => 1, 'can_delete' => 1, 'can_edit' => 1, 'can_checkout' => 1];
+        $roleStmt = $this->db->prepare('SELECT role FROM users WHERE id=? LIMIT 1');
+        $roleStmt->bind_param('i', $userId);
+        $roleStmt->execute();
+        $roleRow = $roleStmt->get_result()->fetch_assoc();
+        if (($roleRow['role'] ?? '') === 'admin') {
+            return $defaults;
+        }
         $stmt = $this->db->prepare('SELECT * FROM user_permissions WHERE user_id=?');
         $stmt->bind_param('i', $userId);
         $stmt->execute();

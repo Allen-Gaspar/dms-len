@@ -35,8 +35,8 @@ $is_dashboard_active = in_array($current_file, ['dashboard.php', 'admin_dashboar
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title><?= htmlspecialchars($page_title ?? $brandName) ?> — <?= htmlspecialchars($brandName) ?></title>
-<link rel="stylesheet" href="<?= asset_url('css/bootstrap.css') ?>">
-<link rel="stylesheet" href="<?= asset_url('css/style.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/bootstrap.css') ?>?v=<?= filemtime(APP_ROOT . '/assets/css/bootstrap.css') ?>">
+<link rel="stylesheet" href="<?= asset_url('css/style.css') ?>?v=<?= filemtime(APP_ROOT . '/assets/css/style.css') ?>">
 <script>window.DMS_BASE = '<?= BASE_URL ?>';</script>
 <style>
   /* Critical fallback so layout works even if CSS is slow to load */

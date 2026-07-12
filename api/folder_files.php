@@ -14,6 +14,7 @@ if ($folderId <= 0 || !AccessControl::canViewFolder($db, $user, $folderId)) {
 $perms = (new User())->getPermissions((int)$user['id']);
 
 function shared_capability(mysqli $db, array $user, array $doc, string $capability): bool {
+    if ($user['role'] === 'admin') return true;
     if ((int)$doc['uploaded_by'] === (int)$user['id']) return true;
     if ((int)$doc['is_private'] === 0 && $user['role'] === 'admin') return true;
 
@@ -58,11 +59,11 @@ foreach ($rows as $doc) {
         'uploaded_by' => $doc['uploader_name'] ?? '-',
         'is_locked' => (int)($doc['is_locked'] ?? 0),
         'created_at' => $doc['created_at'] ?? '',
-        'can_edit' => !empty($perms['can_edit']) && AccessControl::canEditDocument($db, $user, (int)$doc['id']),
-        'can_delete' => !empty($perms['can_delete']) && AccessControl::canDeleteDocument($db, $user, (int)$doc['id']),
-        'can_download' => !empty($perms['can_download']) && shared_capability($db, $user, $doc, 'can_download'),
-        'can_checkout' => !empty($perms['can_checkout']) && shared_capability($db, $user, $doc, 'can_checkout'),
-        'can_share' => !empty($perms['can_share']) && shared_capability($db, $user, $doc, 'can_share'),
+        'can_edit' => $user['role'] === 'admin' || (!empty($perms['can_edit']) && AccessControl::canEditDocument($db, $user, (int)$doc['id'])),
+        'can_delete' => $user['role'] === 'admin' || (!empty($perms['can_delete']) && AccessControl::canDeleteDocument($db, $user, (int)$doc['id'])),
+        'can_download' => $user['role'] === 'admin' || (!empty($perms['can_download']) && shared_capability($db, $user, $doc, 'can_download')),
+        'can_checkout' => $user['role'] === 'admin' || (!empty($perms['can_checkout']) && shared_capability($db, $user, $doc, 'can_checkout')),
+        'can_share' => $user['role'] === 'admin' || (!empty($perms['can_share']) && shared_capability($db, $user, $doc, 'can_share')),
     ];
 }
 

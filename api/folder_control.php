@@ -8,9 +8,9 @@ $db   = get_db();
 $role = $user['role'];
 
 $action = $_GET['action'] ?? '';
+$userPerms = (new User())->getPermissions((int)$user['id']);
 
-// Prevent casual users from modifying folder security permissions
-if ($role === 'casual') {
+if (empty($userPerms['can_share'])) {
     echo json_encode(['success' => false, 'message' => 'Unauthorized operation permission layer.']);
     exit;
 }
@@ -23,8 +23,8 @@ function can_manage_folder(mysqli $db, array $user, int $folderId): bool {
     $stmt->execute();
     $folder = $stmt->get_result()->fetch_assoc();
     if (!$folder) return false;
+    if ($user['role'] === 'admin') return true;
     if ((int)$folder['created_by'] === (int)$user['id']) return true;
-    if ($user['role'] === 'admin' && (int)$folder['is_private'] === 0) return true;
     $share = $db->prepare('SELECT can_share FROM folder_shares WHERE folder_id=? AND shared_with_user_id=? LIMIT 1');
     $share->bind_param('ii', $folderId, $user['id']);
     $share->execute();

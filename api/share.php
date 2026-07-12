@@ -51,6 +51,7 @@ if (isset($_GET['action'])) {
         $doc_id       = (int)($data['document_id'] ?? 0);
         $target_uid   = (int)($data['shared_with_user_id'] ?? 0);
         $target_email = trim($data['email'] ?? '');
+        $share_all    = !empty($data['share_all_users']);
         $can_edit     = (int)($data['can_edit'] ?? 0);
         $can_delete   = (int)($data['can_delete'] ?? 0);
         $can_download = (int)($data['can_download'] ?? 0);
@@ -58,10 +59,15 @@ if (isset($_GET['action'])) {
         $can_add      = (int)($data['can_add'] ?? 0);
         $can_share    = (int)($data['can_share'] ?? 0);
 
-        foreach (['can_add', 'can_share'] as $column) {
+        $requiredColumns = [
+            'can_add' => 'TINYINT(1) DEFAULT 0',
+            'can_share' => 'TINYINT(1) DEFAULT 0',
+            'shared_by' => 'INT NULL'
+        ];
+        foreach ($requiredColumns as $column => $definition) {
             $col = $db->query("SHOW COLUMNS FROM document_shares LIKE '{$column}'");
             if (!$col || $col->num_rows === 0) {
-                $db->query("ALTER TABLE document_shares ADD COLUMN {$column} TINYINT(1) DEFAULT 0");
+                $db->query("ALTER TABLE document_shares ADD COLUMN {$column} {$definition}");
             }
         }
 
@@ -83,7 +89,15 @@ if (isset($_GET['action'])) {
             exit;
         }
 
-        if ($target_uid <= 0 && $target_email !== '') {
+        $target_ids = [];
+        if ($share_all) {
+            $users_stmt = $db->prepare("SELECT id FROM users WHERE id <> ? AND status = 'active' AND is_deleted = 0");
+            $users_stmt->bind_param('i', $user['id']);
+            $users_stmt->execute();
+            foreach ($users_stmt->get_result()->fetch_all(MYSQLI_ASSOC) as $target) {
+                $target_ids[] = (int)$target['id'];
+            }
+        } elseif ($target_uid <= 0 && $target_email !== '') {
             $user_stmt = $db->prepare("SELECT id FROM users WHERE email = ? AND status = 'active' AND is_deleted = 0 LIMIT 1");
             $user_stmt->bind_param('s', $target_email);
             $user_stmt->execute();
@@ -91,36 +105,45 @@ if (isset($_GET['action'])) {
             $target_uid = (int)($target['id'] ?? 0);
         }
 
-        if ($target_uid <= 0) {
+        if (!$share_all && $target_uid > 0) {
+            $target_ids[] = $target_uid;
+        }
+
+        $target_ids = array_values(array_unique(array_filter($target_ids)));
+
+        if (empty($target_ids)) {
             echo json_encode(['success' => false, 'message' => 'No active user found with that email address.']);
             exit;
         }
 
-        if ($target_uid === (int)$user['id']) {
+        if (!$share_all && $target_uid === (int)$user['id']) {
             echo json_encode(['success' => false, 'message' => 'You already own access to this file.']);
             exit;
         }
 
-        $check_stmt = $db->prepare("SELECT id FROM document_shares WHERE document_id = ? AND shared_with_user_id = ? LIMIT 1");
-        $check_stmt->bind_param('ii', $doc_id, $target_uid);
-        $check_stmt->execute();
-        $existing_record = $check_stmt->get_result()->fetch_assoc();
+        $executed = true;
+        foreach ($target_ids as $target_uid) {
+            $check_stmt = $db->prepare("SELECT id FROM document_shares WHERE document_id = ? AND shared_with_user_id = ? LIMIT 1");
+            $check_stmt->bind_param('ii', $doc_id, $target_uid);
+            $check_stmt->execute();
+            $existing_record = $check_stmt->get_result()->fetch_assoc();
 
-        if ($existing_record) {
-            $up_stmt = $db->prepare("UPDATE document_shares SET can_edit = ?, can_delete = ?, can_download = ?, can_checkout = ?, can_add = ?, can_share = ? WHERE id = ?");
-            $up_stmt->bind_param('iiiiiii', $can_edit, $can_delete, $can_download, $can_checkout, $can_add, $can_share, $existing_record['id']);
-            $executed = $up_stmt->execute();
-        } else {
-            $ins_stmt = $db->prepare("INSERT INTO document_shares (document_id, shared_with_user_id, shared_by, can_edit, can_delete, can_download, can_checkout, can_add, can_share) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $ins_stmt->bind_param('iiiiiiiii', $doc_id, $target_uid, $user['id'], $can_edit, $can_delete, $can_download, $can_checkout, $can_add, $can_share);
-            $executed = $ins_stmt->execute();
+            if ($existing_record) {
+                $up_stmt = $db->prepare("UPDATE document_shares SET can_edit = ?, can_delete = ?, can_download = ?, can_checkout = ?, can_add = ?, can_share = ? WHERE id = ?");
+                $up_stmt->bind_param('iiiiiii', $can_edit, $can_delete, $can_download, $can_checkout, $can_add, $can_share, $existing_record['id']);
+                $executed = $up_stmt->execute() && $executed;
+            } else {
+                $ins_stmt = $db->prepare("INSERT INTO document_shares (document_id, shared_with_user_id, shared_by, can_edit, can_delete, can_download, can_checkout, can_add, can_share) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                $ins_stmt->bind_param('iiiiiiiii', $doc_id, $target_uid, $user['id'], $can_edit, $can_delete, $can_download, $can_checkout, $can_add, $can_share);
+                $executed = $ins_stmt->execute() && $executed;
+            }
         }
 
         if ($executed) {
             if (function_exists('audit_log')) {
-                audit_log($user['id'], 'PERMISSION_CHANGE', "Updated access authorization matrix for User ID {$target_uid} on Document ID {$doc_id}");
+                audit_log($user['id'], 'PERMISSION_CHANGE', "Updated access authorization matrix for " . count($target_ids) . " user(s) on Document ID {$doc_id}");
             }
-            echo json_encode(['success' => true, 'message' => 'Access permissions matrix mapped successfully!']);
+            echo json_encode(['success' => true, 'message' => 'Access permissions matrix mapped successfully for ' . count($target_ids) . ' user(s)!']);
         } else {
             echo json_encode(['success' => false, 'message' => 'Database execution error processing parameters matrix: ' . $db->error]);
         }
