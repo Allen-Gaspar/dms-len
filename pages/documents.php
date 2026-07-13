@@ -599,6 +599,49 @@ function triggerNativeDownload(downloadUrl) {
         }
     }, 2000); // 2000ms = 2 seconds loading duration animation screen
 }
+
+
+document.getElementById('m_upload_form').addEventListener('submit', function(e) {
+    e.preventDefault(); 
+    
+    const formData = new FormData(this);
+    const submitBtn = this.querySelector('button[type="submit"]');
+    
+    submitBtn.textContent = 'Saving...';
+    submitBtn.disabled = true;
+
+    fetch(this.action, {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.success) {
+            // 1. Show the success message
+            DMS.toast(data.message, 'success');
+            
+            // 2. Close the modal
+            if (typeof closeMasterEditModal === 'function') {
+                closeMasterEditModal();
+            }
+            
+            // 3. Reload the page ONLY after a successful update
+            setTimeout(() => {
+                location.reload();
+            }, 1000); // Small delay to allow the toast to be visible
+        } else {
+            DMS.toast(data.message || 'Update failed', 'error');
+        }
+    })
+    .catch(err => {
+        console.error('Fetch error:', err);
+        DMS.toast('An error occurred during the update.', 'error');
+    })
+    .finally(() => {
+        submitBtn.textContent = 'Apply Changes';
+        submitBtn.disabled = false;
+    });
+}); 
 </script>
 
 <iframe id="hiddenDownloadFrame" style="display:none;"></iframe>

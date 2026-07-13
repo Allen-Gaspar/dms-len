@@ -137,26 +137,28 @@ if ($action === 'silent_unlock') {
 
 // ── 4. POST ACTION: COMMIT NEW OVERWRITE VERSION FILE REVISION ──────────
 if ($action === 'commit_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    header('Content-Type: application/json'); // Set header to JSON
+
     if (empty($perms['can_edit'])) {
-        context_redirect('err', 'You do not have edit access.');
+        echo json_encode(['success' => false, 'message' => 'You do not have edit access.']);
+        exit;
     }
+    
     $doc_id = (int)($_POST['document_id'] ?? 0);
     
     if ($doc_id <= 0 || !isset($_FILES['revised_document']) || $_FILES['revised_document']['error'] !== UPLOAD_ERR_OK) {
-        context_redirect('err', 'No valid file received.');
+        echo json_encode(['success' => false, 'message' => 'No valid file received.']);
+        exit;
     }
 
-    // Fetch existing active file details to back it up before overwriting
     $stmt = $db->prepare('SELECT * FROM documents WHERE id = ? AND is_deleted = 0 LIMIT 1');
     $stmt->bind_param('i', $doc_id);
     $stmt->execute();
     $current_doc = $stmt->get_result()->fetch_assoc();
 
-    if (!$current_doc) {
-        context_redirect('err', 'Document execution profile missing.');
-    }
-    if (!can_document_capability($db, $user, $doc_id, 'can_edit')) {
-        context_redirect('err', 'You do not have edit access for this file.');
+    if (!$current_doc || !can_document_capability($db, $user, $doc_id, 'can_edit')) {
+        echo json_encode(['success' => false, 'message' => 'Access denied or document missing.']);
+        exit;
     }
 
     $file = $_FILES['revised_document'];
@@ -167,7 +169,7 @@ if ($action === 'commit_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     
     $stored_name = uniqid('doc_rev_', true) . '.' . $ext;
     
-    if (move_uploaded_file($file['tmp_name'], UPLOAD_DIR . '/' . $stored_name)) {
+if (move_uploaded_file($file['tmp_name'], UPLOAD_DIR . '/' . $stored_name)) {
         // A. Log current version into your document_versions repository table history backlog
         $log_stmt = $db->prepare("INSERT INTO document_versions (document_id, version_number, storage_path, file_size, updated_by) VALUES (?, ?, ?, ?, ?)");
         $log_stmt->bind_param('iisii', $doc_id, $current_doc['version'], $current_doc['storage_path'], $current_doc['size'], $user['id']);
@@ -180,9 +182,17 @@ if ($action === 'commit_revision' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $up_stmt->execute();
 
         audit_log($user['id'], 'VERSION_BUMP', "Committed file revision for '{$current_doc['filename']}' — now version v{$next_version}");
-        context_redirect('ok', "New update file successfully as Version v" . $next_version);
+        
+        // Updated message to reflect save and unlock status
+        echo json_encode([
+            'success' => true, 
+            'message' => "Saved successfully! Version v{$next_version} is now unlocked."
+        ]);
+        exit;
     }
-    context_redirect('err', 'Failed to store update file. Check directory permissions.');
+    
+    echo json_encode(['success' => false, 'message' => 'Failed to store update file. Check directory permissions.']);
+    exit;
 }
 
 // ── 5. GET ACTION: OPERATE HISTORICAL CHECKPOINT REGRESSION ROLLBACK ────
